@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://comfyui-wiki.com/en/interface/files",
+    "name": "ComfyUI Installation Package Folder Structure Explained",
+    "snippet": "A comprehensive guide to the ComfyUI installation package folder structure. Learn about the purpose and contents of each directory and file in the ComfyUI setup.",
+    "host_name": "comfyui-wiki.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://deepwiki.com/Comfy-Org/ComfyUI/8.2-project-structure-and-configuration",
+    "name": "Project Structure and Configuration | Comfy-Org/ComfyUI",
+    "snippet": "This page documents ComfyUI's project organization, configuration system, and folder path management. It covers the directory structure, configuration files, the folder_paths module for managing model and data directories, command-line argument handling, and version management.",
+    "host_name": "deepwiki.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.runcomfy.com/comfyui-nodes/ComfyUI-JNodes/JNodes_GetTempDirectory",
+    "name": "Get Temp Directory - RunComfy",
+    "snippet": "The main goal of this node is to simplify the process of accessing the temporary directory, allowing you to focus more on your creative tasks rather than worrying about file management.\nThe temp_dir output parameter provides the path to the temporary directory as a string. This path can be used to store temporary files that you may need during your AI art creation process.",
+    "host_name": "www.runcomfy.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/Comfy-Org/ComfyUI/issues/7739",
+    "name": "Where is the Temp folder gone to? · Issue #7739 · Comfy-Org",
+    "snippet": "The temp folder is automatically deleted when ComfyUI restarts. If you use the PreviewImage node instead of SaveImage, the images are saved in ComfyUI/temp instead of ComfyUI/output. This is to prevent temporary images from continuously accumulating on your disk.",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/comfyui/comments/185mpem/feature_tip_history_and_temp_folder",
+    "name": "Feature Tip: History and Temp Folder : r/comfyui - Reddit",
+    "snippet": "There is a folder called TEMP in the root directory of ComfyUI that saves all images that were previewed during generation. These PNG's contain the metadata for the node setup and generation parameters.\nThere is a folder called TEMP in the root directory of ComfyUI that saves all images that were previewed during generation. These PNG's contain the metadata for the node setup and generation parameters. Shutting down the ComfyUI server will cause History and TEMP to be cleared. I hope this was useful.",
+    "host_name": "www.reddit.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://deepwiki.com/zyd-ustc/comfyui_mindspore/2.3-model-setup-and-file-paths",
+    "name": "Model Setup and File Paths | zyd-ustc/comfyui_mindspore",
+    "snippet": "This document explains how ComfyUI MindSpore discovers, locates, and manages model files and other resources. It covers the default directory structure, custom path configuration, file discovery mecha",
+    "host_name": "deepwiki.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.facebook.com/groups/comfyui/posts/584446814328023",
+    "name": "ComfyUI | **How to Specify your default Input and Output",
+    "snippet": "Input and Output Directory for imag... post, I'll repost this cool little tidbit. tack the following options to the end. (Substitute your. files. Storing source images in the program. exclusively is extremely helpful. Thank you. Aaron F. Ross Great point ! on an SSD, I only have 2x 1TB NVMe. end up having a crash. fine.",
+    "host_name": "www.facebook.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://deepwiki.com/sammykumar/ComfyUI-SwissArmyKnife/7.4-temporary-directory-management",
+    "name": "Temporary Directory Management | sammykumar/ComfyUI",
+    "snippet": "This system provides ComfyUI-aware temporary file and directory management that respects ComfyUI's --base-directory and --temp-directory configuration flags, ensuring proper behavior in Docker deployments with mounted volumes.",
+    "host_name": "deepwiki.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/Comfy-Org/ComfyUI/discussions/1292",
+    "name": "output folder options · Comfy-Org ComfyUI · Discussion #1292",
+    "snippet": "Delete or rename your ComfyUI Output folder (which for the sake of argument is C:\\Comfyui\\output). Symlink format takes the \"space\" where this Output folder used to be and inserts a linked folder.",
+    "host_name": "github.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://comfyai.run/documentation/JNodes_GetTempDirectory",
+    "name": "JNodes_GetTempDirectory Node Documentation (ComfyUI-JNodes)",
+    "snippet": "The JNodes_GetTempDirectory node in ComfyUI is a powerful tool for managing temporary directories during your user interface workflow. Rather than dealing with the complexities of installation and configuration, users can streamline their processes using cloud-based setups like ComfyAI.",
+    "host_name": "comfyai.run",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

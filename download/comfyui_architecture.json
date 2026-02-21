@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://comfyui-wiki.com/en/interface/workflow",
+    "name": "ComfyUI Workflow Basics Tutorial",
+    "snippet": "A detailed introduction to ComfyUI workflow basics, usage methods, import/export operations, suitable for beginners.",
+    "host_name": "comfyui-wiki.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/DanielPFlorian/ComfyUI-WorkflowGenerator",
+    "name": "Generate ComfyUI workflows from natural language descriptions.",
+    "snippet": "The Pipeline node automatically generates the workflow diagram, validates node names, and converts it to executable ComfyUI workflow JSON; You can save the ...",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://blog.bitwisesolutions.co/blog/executing-comfyui-workflows-as-standalone-scripts",
+    "name": "Executing ComfyUI Workflows as Standalone Scripts | BitWise",
+    "snippet": "Run ComfyUI workflows programmatically without the web UI. A deep dive into building a standalone Python executor with WorkflowExecutor and ...",
+    "host_name": "blog.bitwisesolutions.co",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/StableDiffusion/comments/15muvti/automate_your_comfyui_workflows_with_the_comfyui",
+    "name": "r/StableDiffusion on Reddit: Automate your ComfyUI workflows with",
+    "snippet": "Also make sure your ComfyUI folder structure matches what is listed in the readme. The path should be similar to ComfyUI/ComfyUI-to-Python ... Comfy Workflows: Layout & Legibility Thoughts : r/comfyui - Reddit [TUTORIAL] Create a custom node in 5 minutes! (ComfyUI ... - Reddit More results from www.reddit.com",
+    "host_name": "www.reddit.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://medium.com/%40dorangao/comfyui-tutorial-from-hello-world-to-advanced-workflows-f68b9d820a3b",
+    "name": "ComfyUI Tutorial: From Hello World to Advanced Workflows - Medium",
+    "snippet": "ComfyUI is an open-source graphical user interface for Stable Diffusion and similar generative models, built around a node-based workflow system ...",
+    "host_name": "medium.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://labs.snyk.io/resources/hacking-comfyui-through-custom-nodes",
+    "name": "Don't Get Too Comfortable: Hacking ComfyUI Through Custom Nodes",
+    "snippet": "This research focuses on ComfyUI, a popular stable diffusion platform with over 1300 custom node extensions available.",
+    "host_name": "labs.snyk.io",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://dev.to/methodox/devlog-20250710-comfyui-api-1mi0",
+    "name": "DevLog 20250710: ComfyUI API - DEV Community",
+    "snippet": "ComfyUI's GitHub repository includes a script_examples folder with Python scripts that demonstrate how to: Discover all available node types and ...",
+    "host_name": "dev.to",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch%3Fv%3D-zmgjdB8E1U",
+    "name": "The Ultimate ComfyUi Workflow for Architects - YouTube",
+    "snippet": "... dir temp Custom Node Utilities: Crystools Flux - Comfy-Org/flux1-dev (I didn't like) huggingface-cli download Comfy-Org/flux1-dev flux1-dev ... Missing: execution structure",
+    "host_name": "www.youtube.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.comfy.org/development/core-concepts/models",
+    "name": "Models - ComfyUI Official Documentation",
+    "snippet": "In your workflow, create the node appropriate to the model type, e.g. Load Checkpoint, Load LoRA, Load ...",
+    "host_name": "docs.comfy.org",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://stable-diffusion-art.com/comfyui",
+    "name": "Beginner's Guide to ComfyUI - Stable Diffusion Art",
+    "snippet": "ComfyUI is a node-based GUI for Stable Diffusion. By chaining different blocks (called nodes) together, you can construct an image generation workflow.",
+    "host_name": "stable-diffusion-art.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.comfy.org",
+    "name": "ComfyUI - Generate video, images, 3D, audio with AI",
+    "snippet": "Extend ComfyUI by building your own nodes. Customize your workflows, add new functionalities, and shape the tool to your needs. Runs Locally, Fast.",
+    "host_name": "www.comfy.org",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/Comfy-Org/ComfyUI",
+    "name": "Comfy-Org/ComfyUI: The most powerful and modular  - GitHub",
+    "snippet": "ComfyUI lets you design and execute advanced stable diffusion pipelines using a graph/nodes/flowchart based interface. Available on Windows, Linux, and macOS.\nComfyUI The most powerful and modular visual AI engine and application. ComfyUI lets you design and execute advanced stable diffusion pipelines using a graph/nodes/flowchart based interface. Available on Windows, Linux, and macOS.",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.comfy.org",
+    "name": "ComfyUI Official Documentation",
+    "snippet": "Users can combine various AI models and operations through nodes to achieve highly ...",
+    "host_name": "docs.comfy.org",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch%3Fv%3D6VIuXb-be0o",
+    "name": "Introduction to ComfyUI for Architecture - YouTube",
+    "snippet": "ComfyUI is free, open source, and offers more ... Introduction to ComfyUI for Architecture | The Node Based Alternative to Automatic1111.",
+    "host_name": "www.youtube.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://aws.amazon.com/blogs/architecture/how-to-build-custom-nodes-workflow-with-comfyui-on-amazon-eks",
+    "name": "How to build custom nodes workflow with ComfyUI on Amazon EKS",
+    "snippet": "ComfyUI is an open-source node-based workflow solution for Stable Diffusion and increasingly being used by many creators.",
+    "host_name": "aws.amazon.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://medium.com/%40mucahitceylan/comfyui-a-technical-deep-dive-into-the-ultimate-stable-diffusion-workflow-engine-df1a7db3f7f5",
+    "name": "ComfyUI: A Technical Deep Dive into the Ultimate Stable Diffusion",
+    "snippet": "At its core, ComfyUI is an open-source, node-based graphical interface for running Stable Diffusion models and other generative AI tasks.",
+    "host_name": "medium.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/comfyui/comments/1b8okxb/i_made_an_open_source_tool_for_running_any",
+    "name": "I made an open source tool for running any ComfyUI workflow w",
+    "snippet": "It runs locally and lets you import & run any workflow json file with ZERO setup: Automatically installs custom nodes, missing model files from ...",
+    "host_name": "www.reddit.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.emergentmind.com/topics/comfyui",
+    "name": "ComfyUI – Modular AI Workflow Engine - Emergent Mind",
+    "snippet": "ComfyUI is an open-source, node-based workflow engine that constructs modular pipelines for text, image, video, and multimodal generative AI ...",
+    "host_name": "www.emergentmind.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.viewcomfy.com/blog/turn-a-comfyui-workflow-into-an-app",
+    "name": "How to turn a ComfyUI workflow into a web app in minutes",
+    "snippet": "This guide will walk you through using ViewComfy's Open Source UI builder with an ngrok tunnel as an easy and free solution to build a ...",
+    "host_name": "www.viewcomfy.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.comfy.org/download",
+    "name": "Download ComfyUI: Most Powerful Open Source Node-Based AI",
+    "snippet": "ComfyUI is an open-source, node-based AI application run for generative AI. Create, share, and reuse all AI image and video workflows on ComfyUI.",
+    "host_name": "www.comfy.org",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

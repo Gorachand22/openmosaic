@@ -1,0 +1,83 @@
+[
+  {
+    "url": "https://docs.mosaic.so/tiles",
+    "name": "4.1 How Tiles Work - Mosaic API Docs - docs.mosaic.so",
+    "snippet": "Action Tiles modify media — they transform existing media by adding captions, reframing, trimming silence, color correcting, etc. Every workflow follows this flow: Input → Creation / Action → Output. Once this clicks, building any workflow becomes intuitive.\n4. Tiles 4.1 How Tiles Work Understanding the building blocks of Mosaic Double click on the canvas to see the tile option The first tile is usually a Video Input tile You then connect creation tiles or action tiles to it Mosaic performs the actions in order Outputs get passed along the chain Tiles make editing understandable even for first-time ...",
+    "host_name": "docs.mosaic.so",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://help.rossvideo.com/mosaic/Topics/Setup/Video/Mosaic.html",
+    "name": "Mosaic Video Processor Setup",
+    "snippet": "The Mosaic compositing engine allows you to map switcher outputs (Tile/ MiniME™) to regions on your LED display (Canvas). With the tiles laid out on the canvas, background images can be stretched (Background DVE) or tiled (Pre-Tiled Source) across the entire canvas.\nThe Mosaic compositing engine allows you to map switcher outputs (Tile/MiniME) to regions on your LED display (Canvas). With the tiles laid out on the canvas, background images can be stretched (Background DVE) or tiled (Pre-Tiled Source) across the entire canvas.",
+    "host_name": "help.rossvideo.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.mosaic.so",
+    "name": "Mosaic Docs - Mosaic API Docs",
+    "snippet": "Responses are generated using AI and may contain mistakes.\nMosaic Docs Guides and API reference for Mosaic Mosaic Docs Choose a section below to get started.",
+    "host_name": "docs.mosaic.so",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://mosaic.so/features",
+    "name": "Features - Complete AI Video Editing Suite | Mosaic",
+    "snippet": "Each tile represents a video editing operation and is configurable, so you can specify desired outputs. Tiles can be strung together to create agents in the Canvas. These edits can also be prompted directly to the Chat. Drag and drop tiles in a visual canvas to automate your editing workflows.",
+    "host_name": "mosaic.so",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.mosaic.so/welcome",
+    "name": "Welcome - Mosaic API Docs",
+    "snippet": "You can upload video, clip it, caption it, add b-roll, reframe it for different platforms, export it, and automate your editing process — all without needing to learn complex editing software.\nWelcome Mosaic is an intelligent video editing platform that turns raw footage into publish-ready content using a visual workflow made of tiles. You can upload video, clip it, caption it, add b-roll, reframe it for different platforms, export it, and automate your editing process — all without needing to learn complex editing software.",
+    "host_name": "docs.mosaic.so",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://mosaic.so/product",
+    "name": "Product - AI Video Editing Platform | Mosaic",
+    "snippet": "Find exactly what you need in your video content using natural language. Our AI understands concepts, emotions, actions, spoken word, light levels, shot types, and more.\nDiscover Mosaic's AI-powered video editing features. Automate your workflow with intelligent agents, timeline editor, and A/B testing capabilities.",
+    "host_name": "mosaic.so",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.mosaic.so/tiles/motion-graphics",
+    "name": "7. Motion Graphics - Mosaic API Docs",
+    "snippet": "The Motion Graphics tile takes in your video and a prompt describing the type of motion graphics you want, then generates visual elements that match your style and intent.",
+    "host_name": "docs.mosaic.so",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/learn-video/mosaic-video",
+    "name": "GitHub - learn-video/mosaic-video: Generate mosaics from",
+    "snippet": "Mosaic Video is a project designed to transform live streaming videos into nice mosaics in realtime.",
+    "host_name": "github.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/xaliceli/video-mosaic",
+    "name": "GitHub - xaliceli/video-mosaic: video mosaics using video or",
+    "snippet": "video-mosaic Simple script to generate video mosaics, where each frame of the output video (s) is composed of tile-sized images or frames from another video.",
+    "host_name": "github.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  }
+]
