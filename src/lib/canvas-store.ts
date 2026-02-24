@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Node, Edge, Connection } from '@xyflow/react';
 import type { TileData, TileStatus, Workflow } from './tile-types';
 import { TILE_REGISTRY } from './tile-registry';
+import { useWorkspaceStore } from './workspace-store';
 
 interface ExecutionProgress {
   nodeId: string;
@@ -32,6 +33,11 @@ interface CanvasState {
   history: { nodes: Node<TileData>[]; edges: Edge[] }[];
   historyIndex: number;
 
+  // Settings state
+  edgeStyle: 'bezier' | 'smoothstep' | 'straight';
+  snapToGrid: boolean;
+  showMinimap: boolean;
+
   // Actions
   setNodes: (nodes: Node<TileData>[]) => void;
   setEdges: (edges: Edge[]) => void;
@@ -57,10 +63,10 @@ interface CanvasState {
   stopExecution: () => void;
   setNodeStatus: (nodeId: string, status: TileStatus) => void;
 
-  // Undo/Redo
-  undo: () => void;
-  redo: () => void;
-  saveToHistory: () => void;
+  // Settings actions
+  setEdgeStyle: (style: 'bezier' | 'smoothstep' | 'straight') => void;
+  setSnapToGrid: (snap: boolean) => void;
+  setShowMinimap: (show: boolean) => void;
 }
 
 // Helper to create a node from type
@@ -82,10 +88,22 @@ function createNodeFromType(type: string, position: { x: number; y: number }): N
       description: definition?.description || '',
       icon: definition?.icon || 'Sparkles',
       isConfigurable: definition?.isConfigurable ?? true,
-      config: { ...(definition?.defaultConfig || {}) },
-    } as TileData,
+      config: { ...(definition?.defaultConfig || {}) } as any,
+    } as unknown as TileData,
   };
 }
+
+// Helper to sync canvas state to the active workspace
+const syncToWorkspace = (state: CanvasState) => {
+  const wsState = useWorkspaceStore.getState();
+  if (wsState.activeWorkspaceId) {
+    wsState.updateWorkspace(wsState.activeWorkspaceId, {
+      nodes: state.nodes,
+      edges: state.edges,
+      isDirty: true,
+    });
+  }
+};
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   // Initial state
@@ -98,37 +116,44 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   isExecuting: false,
   executionProgress: {},
   executionResults: {},
+
+  // Settings initial state
+  edgeStyle: 'bezier',
+  snapToGrid: true,
+  showMinimap: true,
   history: [],
   historyIndex: -1,
+
+  // Settings actions
+  setEdgeStyle: (style) => set({ edgeStyle: style }),
+  setSnapToGrid: (snap) => set({ snapToGrid: snap }),
+  setShowMinimap: (show) => set({ showMinimap: show }),
 
   // Node actions
   setNodes: (nodes) => {
     set({ nodes, isDirty: true });
+    syncToWorkspace(get());
   },
 
   setEdges: (edges) => {
     set({ edges, isDirty: true });
+    syncToWorkspace(get());
   },
 
   addNode: (type, position) => {
     const newNode = createNodeFromType(type, position);
-    set((state) => {
-      const newNodes = [...state.nodes, newNode];
-      return { nodes: newNodes, isDirty: true };
-    });
-    get().saveToHistory();
+    set((state) => ({ nodes: [...state.nodes, newNode], isDirty: true }));
+
+    syncToWorkspace(get());
     return newNode.id;
   },
 
   addNodeWithConnection: (type, position, connectToPrevious = false) => {
     const newNode = createNodeFromType(type, position);
     const state = get();
-    
-    set((state) => {
-      const newNodes = [...state.nodes, newNode];
-      return { nodes: newNodes, isDirty: true };
-    });
-    
+
+    set((state) => ({ nodes: [...state.nodes, newNode], isDirty: true }));
+
     // If connectToPrevious is true, connect to the last added node
     if (connectToPrevious && state.nodes.length > 0) {
       const lastNode = state.nodes[state.nodes.length - 1];
@@ -136,7 +161,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         id: `edge-${lastNode.id}-${newNode.id}`,
         source: lastNode.id,
         target: newNode.id,
-        type: 'bezier',
+        type: state.edgeStyle,
         animated: true,
         style: { strokeWidth: 2, stroke: '#6366f1' },
       };
@@ -144,26 +169,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         edges: [...state.edges, newEdge],
       }));
     }
-    
-    get().saveToHistory();
+
+
+    syncToWorkspace(get());
     return newNode.id;
   },
 
   connectNodesById: (sourceId, targetId) => {
-    const newEdge: Edge = {
-      id: `edge-${sourceId}-${targetId}-${Date.now()}`,
-      source: sourceId,
-      target: targetId,
-      type: 'bezier',
-      animated: true,
-      style: { strokeWidth: 2, stroke: '#6366f1' },
-    };
+    set((state) => {
+      const newEdge: Edge = {
+        id: `edge-${sourceId}-${targetId}`,
+        source: sourceId,
+        target: targetId,
+        type: state.edgeStyle,
+        animated: true,
+        style: { strokeWidth: 2 }
+      };
+      return {
+        edges: [...state.edges, newEdge],
+        isDirty: true
+      };
+    });
 
-    set((state) => ({
-      edges: [...state.edges, newEdge],
-      isDirty: true,
-    }));
-    get().saveToHistory();
+    syncToWorkspace(get());
   },
 
   clearCanvas: () => {
@@ -175,28 +203,40 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       executionProgress: {},
       executionResults: {},
     });
-    get().saveToHistory();
+
+    syncToWorkspace(get());
   },
 
   updateNode: (nodeId, data) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
         node.id === nodeId
-          ? { ...node, data: { ...node.data, ...data, config: { ...node.data.config, ...(data.config || {}) } } }
+          ? ({ ...node, data: { ...node.data, ...data, config: { ...node.data.config, ...(data.config || {}) } } } as any)
           : node
       ),
       isDirty: true,
     }));
+    syncToWorkspace(get());
   },
 
   deleteNode: (nodeId) => {
-    set((state) => ({
-      nodes: state.nodes.filter((node) => node.id !== nodeId),
-      edges: state.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
-      selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
-      isDirty: true,
-    }));
-    get().saveToHistory();
+    set((state) => {
+      const newResults = { ...state.executionResults };
+      const newProgress = { ...state.executionProgress };
+      delete newResults[nodeId];
+      delete newProgress[nodeId];
+
+      return {
+        nodes: state.nodes.filter((node) => node.id !== nodeId),
+        edges: state.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+        selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+        executionResults: newResults,
+        executionProgress: newProgress,
+        isDirty: true,
+      };
+    });
+
+    syncToWorkspace(get());
   },
 
   selectNode: (nodeId) => {
@@ -221,15 +261,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: [...state.edges, newEdge],
       isDirty: true,
     }));
-    get().saveToHistory();
+
   },
 
   disconnectNodes: (edgeId) => {
-    set((state) => ({
-      edges: state.edges.filter((edge) => edge.id !== edgeId),
-      isDirty: true,
-    }));
-    get().saveToHistory();
+    set((state) => {
+      const edgeToDisconnect = state.edges.find((e) => e.id === edgeId);
+      const newResults = { ...state.executionResults };
+      const newProgress = { ...state.executionProgress };
+
+      if (edgeToDisconnect) {
+        // Invalidate the target node since its input changed
+        delete newResults[edgeToDisconnect.target];
+        delete newProgress[edgeToDisconnect.target];
+      }
+
+      return {
+        edges: state.edges.filter((edge) => edge.id !== edgeId),
+        executionResults: newResults,
+        executionProgress: newProgress,
+        isDirty: true,
+      };
+    });
   },
 
   // Workflow actions
@@ -295,26 +348,72 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     get().setNodeStatus(nodeId, 'processing');
 
     try {
-      // Simulate execution (real implementation will call backend API)
-      for (let i = 0; i <= 100; i += 10) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        set((state) => ({
-          executionProgress: {
-            ...state.executionProgress,
-            [nodeId]: { nodeId, status: 'running', progress: i },
-          },
-        }));
+      // Gather inputs from connected nodes
+      const state = get();
+      const incomingEdges = state.edges.filter(e => e.target === nodeId);
+      const inputs: Record<string, any> = {};
+
+      for (const edge of incomingEdges) {
+        const sourceResult = state.executionResults[edge.source] as any;
+        if (sourceResult?.outputs) {
+          // If we connected from a specific handle, try to get that specific output
+          if (edge.sourceHandle && sourceResult.outputs[edge.sourceHandle]) {
+            inputs[edge.sourceHandle] = sourceResult.outputs[edge.sourceHandle].data || sourceResult.outputs[edge.sourceHandle].url || sourceResult.outputs[edge.sourceHandle].path;
+          } else {
+            // Otherwise just grab the first available output or merge them
+            const firstKey = Object.keys(sourceResult.outputs)[0];
+            if (firstKey) {
+              // usually the output is .data for text, or .url/.path for media
+              inputs[firstKey] = sourceResult.outputs[firstKey].data || sourceResult.outputs[firstKey].url || sourceResult.outputs[firstKey].path;
+            }
+          }
+        }
       }
 
-      // Mark as completed
+      // Special case: for text inputs, the output is just the config.content 
+      // but in the actual tile-executor it returns it in outputs.text.data.
+
+      // Update progress to show we started
+      set((state) => ({
+        executionProgress: {
+          ...state.executionProgress,
+          [nodeId]: { nodeId, status: 'running', progress: 50 },
+        },
+      }));
+
+      // Call the real backend execution API
+      const response = await fetch('/api/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeId,
+          tileType: node.data.tileType,
+          config: node.data.config,
+          inputs
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Execution failed');
+      }
+
+      // Mark as completed and save results
       set((state) => ({
         executionProgress: {
           ...state.executionProgress,
           [nodeId]: { nodeId, status: 'completed', progress: 100 },
         },
+        executionResults: {
+          ...state.executionResults,
+          [nodeId]: result
+        }
       }));
+
       get().setNodeStatus(nodeId, 'completed');
     } catch (error) {
+      console.error(`Execution error for node ${nodeId}:`, error);
       set((state) => ({
         executionProgress: {
           ...state.executionProgress,

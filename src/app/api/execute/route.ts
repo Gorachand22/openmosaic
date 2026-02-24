@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
+import {
   ensureFolders,
   executeVideoInput,
   executeImageInput,
@@ -20,6 +20,9 @@ import {
   executeVideoPreview,
   executeImagePreview,
   executeAudioPreview,
+  executeSpeed,
+  executeWatermark,
+  executeReverse,
   FOLDERS,
 } from '@/lib/tile-executor';
 
@@ -33,11 +36,11 @@ ensureFolders().catch(console.error);
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { 
-      tileType, 
-      config, 
+    const {
+      tileType,
+      config,
       inputs = {},
-      nodeId 
+      nodeId
     } = body;
 
     if (!tileType) {
@@ -57,19 +60,19 @@ export async function POST(request: NextRequest) {
       case 'video-input':
         result = await executeVideoInput(config, onProgress);
         break;
-      
+
       case 'youtube-trigger':
         result = await executeVideoInput({ source: 'url', fileUrl: config.url }, onProgress);
         break;
-      
+
       case 'image-input':
         result = await executeImageInput(config, onProgress);
         break;
-      
+
       case 'audio-input':
         result = await executeAudioInput(config, onProgress);
         break;
-      
+
       case 'text-input':
         result = await executeTextInput(config, onProgress);
         break;
@@ -78,11 +81,11 @@ export async function POST(request: NextRequest) {
       case 'ai-image':
         result = await executeAIImage(config, onProgress);
         break;
-      
+
       case 'ai-video':
         result = await executeAIVideo(config, inputs.image, onProgress);
         break;
-      
+
       case 'ai-avatar':
         result = await executeAIAvatar(config, onProgress);
         break;
@@ -94,21 +97,21 @@ export async function POST(request: NextRequest) {
         }
         result = await executeReframe(inputs.video, config, onProgress);
         break;
-      
+
       case 'clips':
         if (!inputs.video) {
           return NextResponse.json({ error: 'Video input required' }, { status: 400 });
         }
         result = await executeClips(inputs.video, config, onProgress);
         break;
-      
+
       case 'silence-removal':
         if (!inputs.video) {
           return NextResponse.json({ error: 'Video input required' }, { status: 400 });
         }
         result = await executeSilenceRemoval(inputs.video, config, onProgress);
         break;
-      
+
       case 'captions':
       case 'cinematic-captions':
         if (!inputs.video) {
@@ -116,12 +119,34 @@ export async function POST(request: NextRequest) {
         }
         result = await executeCaptions(inputs.video, inputs.text || '', config, onProgress);
         break;
-      
+
       case 'audio-enhance':
         if (!inputs.video) {
           return NextResponse.json({ error: 'Video input required' }, { status: 400 });
         }
         result = await executeAudioEnhance(inputs.video, config, onProgress);
+        break;
+
+      case 'speed':
+        if (!inputs.video) {
+          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
+        }
+        result = await executeSpeed(inputs.video, config, onProgress);
+        break;
+
+      case 'watermark':
+        if (!inputs.video) {
+          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
+        }
+        // watermarks use `inputs.image` if available
+        result = await executeWatermark(inputs.video, inputs.image, config, onProgress);
+        break;
+
+      case 'reverse':
+        if (!inputs.video) {
+          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
+        }
+        result = await executeReverse(inputs.video, config, onProgress);
         break;
 
       // Transcription
@@ -136,7 +161,7 @@ export async function POST(request: NextRequest) {
       case 'manim':
         result = await executeManim(config.script || inputs.text, config, onProgress);
         break;
-      
+
       case 'remotion':
         result = await executeRemotion(config.composition || inputs.text, config, onProgress);
         break;
@@ -156,14 +181,14 @@ export async function POST(request: NextRequest) {
         }
         result = await executeVideoPreview(inputs.video, onProgress);
         break;
-      
+
       case 'image-preview':
         if (!inputs.image) {
           return NextResponse.json({ error: 'Image input required' }, { status: 400 });
         }
         result = await executeImagePreview(inputs.image, onProgress);
         break;
-      
+
       case 'audio-preview':
         if (!inputs.audio) {
           return NextResponse.json({ error: 'Audio input required' }, { status: 400 });
@@ -201,9 +226,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Execution error:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
@@ -221,7 +246,7 @@ export async function GET() {
     executors: [
       // Input
       'video-input',
-      'youtube-trigger', 
+      'youtube-trigger',
       'image-input',
       'audio-input',
       'text-input',

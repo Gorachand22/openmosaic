@@ -4,8 +4,9 @@ import { memo, useState, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
-import type { TileData } from '@/lib/tile-types';
+import type { TileData, TileNode as TileNodeType } from '@/lib/tile-types';
 import { TILE_REGISTRY } from '@/lib/tile-registry';
+import { useCanvasStore } from '@/lib/canvas-store';
 import {
   Video,
   Image as ImageIcon,
@@ -104,14 +105,14 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 
 // Tile node style variants
 const tileVariants = cva(
-  'relative min-w-[200px] max-w-[280px] rounded-lg border-2 bg-card shadow-lg transition-all duration-200 cursor-pointer group',
+  'relative min-w-[200px] max-w-[280px] rounded-xl border border-border/50 bg-background/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md shadow-xl transition-all duration-300 cursor-pointer group hover:shadow-2xl',
   {
     variants: {
       category: {
-        input: 'border-blue-500/50 hover:border-blue-500',
-        action: 'border-purple-500/50 hover:border-purple-500',
-        output: 'border-green-500/50 hover:border-green-500',
-        logic: 'border-orange-500/50 hover:border-orange-500',
+        input: 'border-blue-500/30 hover:border-blue-500/80 hover:shadow-[0_0_20px_rgba(59,130,246,0.2)]',
+        action: 'border-purple-500/30 hover:border-purple-500/80 hover:shadow-[0_0_20px_rgba(168,85,247,0.2)]',
+        output: 'border-green-500/30 hover:border-green-500/80 hover:shadow-[0_0_20px_rgba(34,197,94,0.2)]',
+        logic: 'border-orange-500/30 hover:border-orange-500/80 hover:shadow-[0_0_20px_rgba(249,115,22,0.2)]',
       },
       status: {
         idle: 'opacity-100',
@@ -140,21 +141,42 @@ const TYPE_COLORS: Record<string, { bg: string; border: string; label: string }>
   any: { bg: 'bg-gray-500', border: 'border-gray-400', label: 'Any' },
 };
 
-type TileNodeProps = NodeProps<TileData>;
+type TileNodeProps = NodeProps<TileNodeType>;
 
 // Preview renderer component
-function PreviewRenderer({ tileType, data }: { tileType: string; data: TileData }) {
-  const outputUrl = data.config?.outputUrl || data.config?.videoUrl || data.config?.imageUrl || data.config?.audioUrl;
-  const outputText = data.config?.outputText || data.config?.transcript;
-  
+function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: any; nodeId: string }) {
+  const { executionResults } = useCanvasStore();
+  const result = executionResults[nodeId] as any;
+
+  let outputUrl = '';
+  let outputText = '';
+
+  // 1. Try to pull actual generated media or text from execution results
+  if (result && result.outputs) {
+    const o = result.outputs;
+    if (o.video?.url || o.video?.path) outputUrl = o.video.url || o.video.path;
+    else if (o.image?.url || o.image?.path) outputUrl = o.image.url || o.image.path;
+    else if (o.audio?.url || o.audio?.path) outputUrl = o.audio.url || o.audio.path;
+
+    if (o.text?.data) outputText = o.text.data;
+  }
+
+  // 2. Fallback to statically configured data if no execution result exists yet
+  if (!outputUrl) {
+    outputUrl = data.config?.outputUrl || data.config?.videoUrl || data.config?.imageUrl || data.config?.audioUrl;
+  }
+  if (!outputText) {
+    outputText = data.config?.outputText || data.config?.transcript || data.config?.content;
+  }
+
   // Video Preview
   if (tileType === 'video-preview' || (tileType === 'video-output' && outputUrl)) {
     return (
       <div className="mt-2 rounded overflow-hidden bg-black aspect-video">
         {outputUrl ? (
-          <video 
-            src={outputUrl} 
-            controls 
+          <video
+            src={outputUrl}
+            controls
             className="w-full h-full object-contain"
             muted
           />
@@ -166,15 +188,15 @@ function PreviewRenderer({ tileType, data }: { tileType: string; data: TileData 
       </div>
     );
   }
-  
+
   // Image Preview
   if (tileType === 'image-preview' || (tileType === 'thumbnail' && outputUrl)) {
     return (
       <div className="mt-2 rounded overflow-hidden bg-muted">
         {outputUrl ? (
-          <img 
-            src={outputUrl} 
-            alt="Preview" 
+          <img
+            src={outputUrl}
+            alt="Preview"
             className="w-full object-contain max-h-40"
           />
         ) : (
@@ -185,7 +207,7 @@ function PreviewRenderer({ tileType, data }: { tileType: string; data: TileData 
       </div>
     );
   }
-  
+
   // Audio Preview
   if (tileType === 'audio-preview') {
     return (
@@ -200,7 +222,7 @@ function PreviewRenderer({ tileType, data }: { tileType: string; data: TileData 
       </div>
     );
   }
-  
+
   // Text Preview
   if (tileType === 'text-preview' || tileType === 'transcribe') {
     return (
@@ -211,13 +233,15 @@ function PreviewRenderer({ tileType, data }: { tileType: string; data: TileData 
       </div>
     );
   }
-  
+
   return null;
 }
 
-function TileNodeComponent({ data, selected, id }: TileNodeProps) {
+function TileNodeComponent(props: TileNodeProps) {
+  const { selected, id } = props;
+  const data: any = props.data;
   const [showInfo, setShowInfo] = useState(false);
-  
+
   // Get the tile definition from registry
   const tileType = data.tileType || data.label.toLowerCase().replace(/\s+/g, '-');
   const definition = TILE_REGISTRY[tileType];
@@ -249,7 +273,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
   const renderInputHandle = (input: { id: string; type: string; label: string; required?: boolean }, index: number) => {
     const typeColor = TYPE_COLORS[input.type] || TYPE_COLORS.any;
     const topPercent = ((index + 1) / ((definition?.inputs?.length || 1) + 1)) * 100;
-    
+
     return (
       <TooltipProvider key={`input-${input.id}`}>
         <Tooltip>
@@ -284,7 +308,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
   const renderOutputHandle = (output: { id: string; type: string; label: string }, index: number) => {
     const typeColor = TYPE_COLORS[output.type] || TYPE_COLORS.any;
     const topPercent = ((index + 1) / ((definition?.outputs?.length || 1) + 1)) * 100;
-    
+
     return (
       <TooltipProvider key={`output-${output.id}`}>
         <Tooltip>
@@ -340,7 +364,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
             </p>
           </div>
           {renderStatusIndicator()}
-          
+
           {/* Info Button */}
           <Popover open={showInfo} onOpenChange={setShowInfo}>
             <PopoverTrigger asChild>
@@ -364,7 +388,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
                     {definition?.description || data.description}
                   </p>
                 </div>
-                
+
                 {/* Inputs */}
                 {definition?.inputs && definition.inputs.length > 0 && (
                   <div>
@@ -381,7 +405,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
                     </div>
                   </div>
                 )}
-                
+
                 {/* Outputs */}
                 {definition?.outputs && definition.outputs.length > 0 && (
                   <div>
@@ -397,7 +421,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
                     </div>
                   </div>
                 )}
-                
+
                 {/* Connection Tips */}
                 <div className="pt-2 border-t border-border">
                   <p className="text-[10px] text-muted-foreground">
@@ -435,7 +459,7 @@ function TileNodeComponent({ data, selected, id }: TileNodeProps) {
         </div>
 
         {/* Preview for output tiles */}
-        <PreviewRenderer tileType={tileType} data={data} />
+        <PreviewRenderer tileType={tileType} data={data} nodeId={id} />
       </div>
 
       {/* Output Handles */}

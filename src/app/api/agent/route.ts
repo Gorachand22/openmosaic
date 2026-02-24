@@ -88,17 +88,41 @@ IMPORTANT:
 - Keep it simple and focused
 - Always provide steps JSON at the end`;
 
-const OPENROUTER_CONFIG = {
-  baseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY || '',
-  model: process.env.OPENROUTER_MODEL || 'nvidia/nemotron-nano-12b-v2-vl:free',
-};
+// Add a helper for generic OpenAI-compatible REST endpoints
+async function fetchOpenAICompatible(url: string, apiKey: string, model: string, messages: any[]) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'http://localhost:3000',
+      'X-Title': 'OpenMosaic'
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 4096
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`HTTP ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content;
+}
 
 async function getAIResponse(messages: Array<{ role: string; content: string }>): Promise<{
   content: string;
   provider: string;
 }> {
-  // Try Z-AI first
+  let content: string | null = null;
+  let provider = "unknown";
+
+  // 1. Try Primary ZAI Provider
   try {
     const zai = await ZAI.create();
     const completion = await zai.chat.completions.create({
@@ -106,49 +130,75 @@ async function getAIResponse(messages: Array<{ role: string; content: string }>)
       temperature: 0.7,
       max_tokens: 4096,
     });
-
-    const content = completion.choices?.[0]?.message?.content;
+    content = completion.choices?.[0]?.message?.content;
+    provider = "z-ai-web-dev-sdk (Local SDK proxy)";
     if (content) {
-      console.log('[Agent] Used Z-AI (primary)');
-      return { content, provider: 'z-ai-web-dev-sdk' };
+      console.log(`[Agent] Used Z-AI (primary)`);
+      return { content, provider };
     }
   } catch (error) {
-    console.warn('[Agent] Z-AI failed, using OpenRouter fallback');
-  }
+    console.warn(`[Agent] ZAI SDK failed: ${error}`);
+    console.log(`[Agent] Attempting Fallback 1: Nvidia API`);
 
-  // OpenRouter fallback
-  if (!OPENROUTER_CONFIG.apiKey) {
-    throw new Error('No AI provider available');
-  }
+    // 2. Try Nvidia Endpoints Fallback
+    try {
+      if (!process.env.NV_API_KEY) throw new Error("Missing NV_API_KEY in .env");
+      content = await fetchOpenAICompatible(
+        'https://integrate.api.nvidia.com/v1/chat/completions',
+        process.env.NV_API_KEY,
+        'z-ai/glm5',
+        messages
+      );
+      provider = "Nvidia (z-ai/glm5)";
+      if (content) {
+        console.log(`[Agent] Used Nvidia API`);
+        return { content, provider };
+      }
+    } catch (nvError) {
+      console.warn(`[Agent] Nvidia API failed: ${nvError}`);
+      console.log(`[Agent] Attempting Fallback 2: OpenRouter Free`);
 
-  try {
-    const response = await fetch(`${OPENROUTER_CONFIG.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_CONFIG.apiKey}`,
-        'HTTP-Referer': 'https://openmosaic.app',
-      },
-      body: JSON.stringify({
-        model: OPENROUTER_CONFIG.model,
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
-        temperature: 0.7,
-        max_tokens: 4096,
-      }),
-    });
+      // 3. Try OpenRouter Free Fallback
+      try {
+        if (!process.env.OPENROUTER_API_KEY) throw new Error("Missing OPENROUTER_API_KEY in .env");
+        content = await fetchOpenAICompatible(
+          'https://openrouter.ai/api/v1/chat/completions',
+          process.env.OPENROUTER_API_KEY,
+          'nvidia/nemotron-nano-12b-v2-vl:free',
+          messages
+        );
+        provider = "OpenRouter (nvidia/nemotron-nano-12b-v2-vl:free)";
+        if (content) {
+          console.log(`[Agent] Used OpenRouter API`);
+          return { content, provider };
+        }
+      } catch (orError) {
+        console.warn(`[Agent] OpenRouter API failed: ${orError}`);
+        console.log(`[Agent] Attempting Fallback 3: HuggingFace Target`);
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    
-    if (content) {
-      console.log('[Agent] Used OpenRouter (fallback)');
-      return { content, provider: 'openrouter' };
+        // 4. Try HuggingFace Tunnel Fallback
+        try {
+          if (!process.env.HF_TOKEN) throw new Error("Missing HF_TOKEN in .env");
+          content = await fetchOpenAICompatible(
+            'https://router.huggingface.co/v1/chat/completions',
+            process.env.HF_TOKEN,
+            'zai-org/GLM-5:together',
+            messages
+          );
+          provider = "HuggingFace (zai-org/GLM-5:together)";
+          if (content) {
+            console.log(`[Agent] Used HuggingFace API`);
+            return { content, provider };
+          }
+        } catch (hfError) {
+          console.error(`[Agent] All backend providers failed permanently.`);
+          throw new Error(`All fallback AI network providers have failed or timed out. Last error: ${hfError}`);
+        }
+      }
     }
-  } catch (error) {
-    console.error('[Agent] OpenRouter failed:', error);
   }
 
-  throw new Error('All AI providers failed');
+  throw new Error('All AI providers failed or returned empty content');
 }
 
 export async function POST(request: NextRequest) {
@@ -191,18 +241,18 @@ export async function POST(request: NextRequest) {
 
     // Extract steps JSON
     const stepsMatch = content.match(/```steps\n([\s\S]*?)```/);
-    
+
     let steps = null;
     let clearCanvas = false;
-    
+
     if (stepsMatch) {
       try {
         const stepsData = JSON.parse(stepsMatch[1]);
-        steps = stepsData.steps || [];
+        const parsedSteps = stepsData.steps || [];
         clearCanvas = stepsData.clearCanvas ?? true;
-        
+
         // Add unique IDs to steps
-        steps = steps.map((step: { action: string; tileType?: string; description: string }, index: number) => ({
+        steps = parsedSteps.map((step: any, index: number) => ({
           ...step,
           id: `step-${index}-${Date.now()}`,
           status: 'pending',
@@ -235,7 +285,7 @@ async function handleVideoGeneration(body: { prompt: string; imageUrl?: string; 
   try {
     const { prompt, imageUrl, size = '768x1344', duration = 5 } = body;
     const zai = await ZAI.create();
-    
+
     const params: Record<string, unknown> = { prompt, size, duration, quality: 'speed', fps: 30 };
     if (imageUrl) params.image_url = imageUrl;
 

@@ -15,38 +15,22 @@ import {
   Sun,
   Moon,
   Monitor,
-  CurvedConnector,
   Route,
   Grid3X3,
   Sparkles,
   Circle,
 } from 'lucide-react';
 
+import { useTheme } from 'next-themes';
+import { useCanvasStore } from '@/lib/canvas-store';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type EdgeStyle = 'bezier' | 'smoothstep' | 'straight';
 
-interface SettingsPanelProps {
-  theme?: ThemeMode;
-  onThemeChange?: (theme: ThemeMode) => void;
-  edgeStyle?: EdgeStyle;
-  onEdgeStyleChange?: (style: EdgeStyle) => void;
-  snapToGrid?: boolean;
-  onSnapToGridChange?: (snap: boolean) => void;
-  showMinimap?: boolean;
-  onShowMinimapChange?: (show: boolean) => void;
-}
-
-export function SettingsPanel({
-  theme = 'dark',
-  onThemeChange,
-  edgeStyle = 'bezier',
-  onEdgeStyleChange,
-  snapToGrid = true,
-  onSnapToGridChange,
-  showMinimap = true,
-  onShowMinimapChange,
-}: SettingsPanelProps) {
+export function SettingsPanel() {
   const [isOpen, setIsOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
+  const { edgeStyle, setEdgeStyle, snapToGrid, setSnapToGrid, showMinimap, setShowMinimap } = useCanvasStore();
 
   const themeOptions: { value: ThemeMode; icon: React.ReactNode; label: string }[] = [
     { value: 'light', icon: <Sun className="h-4 w-4" />, label: 'Light' },
@@ -55,21 +39,21 @@ export function SettingsPanel({
   ];
 
   const edgeOptions: { value: EdgeStyle; icon: React.ReactNode; label: string; description: string }[] = [
-    { 
-      value: 'bezier', 
-      icon: <Circle className="h-4 w-4" />, 
+    {
+      value: 'bezier',
+      icon: <Circle className="h-4 w-4" />,
       label: 'Smooth Curve',
       description: 'Beautiful curved connections'
     },
-    { 
-      value: 'smoothstep', 
-      icon: <Route className="h-4 w-4" />, 
+    {
+      value: 'smoothstep',
+      icon: <Route className="h-4 w-4" />,
       label: 'Step',
       description: 'Right-angle connections'
     },
-    { 
-      value: 'straight', 
-      icon: <Grid3X3 className="h-4 w-4" />, 
+    {
+      value: 'straight',
+      icon: <Grid3X3 className="h-4 w-4" />,
       label: 'Straight',
       description: 'Direct line connections'
     },
@@ -107,7 +91,7 @@ export function SettingsPanel({
                     'flex-1 flex flex-col items-center gap-1 h-auto py-2',
                     theme === option.value && 'bg-gradient-to-r from-blue-500 to-purple-500'
                   )}
-                  onClick={() => onThemeChange?.(option.value)}
+                  onClick={() => setTheme(option.value)}
                 >
                   {option.icon}
                   <span className="text-[10px]">{option.label}</span>
@@ -128,7 +112,7 @@ export function SettingsPanel({
                     'w-full justify-start h-auto py-2',
                     edgeStyle === option.value && 'bg-gradient-to-r from-blue-500 to-purple-500'
                   )}
-                  onClick={() => onEdgeStyleChange?.(option.value)}
+                  onClick={() => setEdgeStyle(option.value)}
                 >
                   <div className="flex items-center gap-3">
                     {option.icon}
@@ -158,7 +142,7 @@ export function SettingsPanel({
                 </div>
                 <Switch
                   checked={snapToGrid}
-                  onCheckedChange={onSnapToGridChange}
+                  onCheckedChange={setSnapToGrid}
                 />
               </div>
               <div className="flex items-center justify-between">
@@ -168,7 +152,7 @@ export function SettingsPanel({
                 </div>
                 <Switch
                   checked={showMinimap}
-                  onCheckedChange={onShowMinimapChange}
+                  onCheckedChange={setShowMinimap}
                 />
               </div>
             </div>

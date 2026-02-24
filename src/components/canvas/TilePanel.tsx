@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { TILE_REGISTRY, getTilesByCategory } from '@/lib/tile-registry';
+import type { TileDefinition } from '@/lib/tile-types';
 import {
   Video,
   Image,
@@ -116,7 +117,7 @@ export function TilePanel({ className }: TilePanelProps) {
   };
 
   // Filter tiles based on search
-  const filterTiles = (tiles: typeof Object.values<typeof TILE_REGISTRY>) => {
+  const filterTiles = (tiles: TileDefinition[]) => {
     if (!searchQuery) return tiles;
     return tiles.filter(
       (tile) =>
@@ -126,7 +127,7 @@ export function TilePanel({ className }: TilePanelProps) {
   };
 
   // Render tile item
-  const renderTileItem = (tileType: string, tile: (typeof TILE_REGISTRY)[string]) => {
+  const renderTileItem = (tileType: string, tile: TileDefinition) => {
     const IconComponent = ICON_MAP[tile.icon] || Sparkles;
     const style = CATEGORY_STYLES[tile.category];
 

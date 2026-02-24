@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useWorkspaceStore } from '@/lib/workspace-store';
+import { useCanvasStore } from '@/lib/canvas-store';
 import { cn } from '@/lib/utils';
 import {
   Plus,
@@ -30,6 +31,7 @@ import {
   FolderOpen,
   FileJson,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -44,7 +46,16 @@ export function WorkspaceTabs() {
     saveWorkspaceToFile,
     loadWorkflowFromFile,
     listSavedWorkflows,
+    updateWorkspace,
+    deleteSavedWorkflow,
   } = useWorkspaceStore();
+
+  const {
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+  } = useCanvasStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -58,20 +69,82 @@ export function WorkspaceTabs() {
   const [loading, setLoading] = useState(false);
 
   const handleCreateWorkspace = () => {
+    // 1. Save current canvas state to the outgoing workspace
+    if (activeWorkspaceId) {
+      updateWorkspace(activeWorkspaceId, {
+        nodes,
+        edges,
+      });
+    }
+
+    // 2. Switch to new workspace
     createWorkspace();
+
+    // 3. Clear canvas for the new blank workspace
+    setNodes([]);
+    setEdges([]);
   };
 
   const handleSwitchWorkspace = (id: string) => {
+    if (id === activeWorkspaceId) return;
+
+    // 1. Save current canvas state to the outgoing workspace
+    if (activeWorkspaceId) {
+      updateWorkspace(activeWorkspaceId, {
+        nodes,
+        edges,
+      });
+    }
+
+    // 2. Switch active ID
     switchWorkspace(id);
+
+    // 3. Load the incoming workspace's nodes and edges into the canvas
+    const nextWorkspace = workspaces.find(ws => ws.id === id);
+    if (nextWorkspace) {
+      setNodes(nextWorkspace.nodes || []);
+      setEdges(nextWorkspace.edges || []);
+    }
   };
 
   const handleDeleteWorkspace = (id: string) => {
     if (workspaces.length === 1) {
-      toast.error('Cannot delete the last workspace');
+      toast.error('Cannot close the last workflow');
       return;
     }
+
+    const wsToDelete = workspaces.find(ws => ws.id === id);
+    if (!wsToDelete) return;
+
+    // Check if dirty (from either store if it's the active one)
+    const isCurrentlyActive = id === activeWorkspaceId;
+    const isDirty = isCurrentlyActive
+      ? useCanvasStore.getState().isDirty || wsToDelete.isDirty
+      : wsToDelete.isDirty;
+
+    if (isDirty) {
+      const confirmClose = window.confirm(`"${wsToDelete.name}" has unsaved changes. Are you sure you want to close it?`);
+      if (!confirmClose) return;
+    }
+
+    // Determine the next workspace ID before deleting
+    let nextWorkspaceId = activeWorkspaceId;
+    if (isCurrentlyActive) {
+      const remaining = workspaces.filter(ws => ws.id !== id);
+      nextWorkspaceId = remaining[0]?.id || null;
+
+      // Load next workspace into canvas
+      if (nextWorkspaceId) {
+        const nextWs = remaining.find(ws => ws.id === nextWorkspaceId);
+        if (nextWs) {
+          useCanvasStore.getState().setNodes(nextWs.nodes || []);
+          useCanvasStore.getState().setEdges(nextWs.edges || []);
+        }
+      }
+    }
+
     deleteWorkspace(id);
-    toast.success('Workspace closed');
+    toast.success('Workflow closed');
   };
 
   const handleStartRename = (id: string, name: string) => {
@@ -91,7 +164,7 @@ export function WorkspaceTabs() {
     setSaving(id);
     const result = await saveWorkspaceToFile(id);
     setSaving(null);
-    
+
     if (result.success) {
       toast.success(`Workflow saved: ${result.path}`);
     } else {
@@ -103,22 +176,53 @@ export function WorkspaceTabs() {
     setLoading(true);
     const result = await listSavedWorkflows();
     setLoading(false);
-    
+
     if (result.success && result.files) {
-      setSavedWorkflows(result.files as Array<{ filename: string; name: string; modified: Date }>);
+      setSavedWorkflows(result.files);
     }
     setShowLoadDialog(true);
   };
 
   const handleLoad = async (filename: string) => {
+    // 1. Sync current canvas before replacing
+    if (activeWorkspaceId) {
+      updateWorkspace(activeWorkspaceId, { nodes, edges });
+    }
+
     const result = await loadWorkflowFromFile(filename);
-    
-    if (result.success) {
+
+    if (result.success && result.workspace) {
       toast.success('Workflow loaded');
+
+      // 2. Hydrate loaded nodes into the canvas (fixing the blank canvas bug on load)
+      setNodes(result.workspace.nodes || []);
+      setEdges(result.workspace.edges || []);
+
       setShowLoadDialog(false);
     } else {
       toast.error(`Load failed: ${result.error}`);
     }
+  };
+
+  const handleDeleteSaved = async (e: React.MouseEvent, filename: string) => {
+    e.stopPropagation();
+
+    const confirm = window.confirm('Are you sure you want to delete this saved workflow?');
+    if (!confirm) return;
+
+    setLoading(true);
+    const result = await deleteSavedWorkflow(filename);
+    if (result.success) {
+      toast.success('Workflow deleted');
+      // Refresh list
+      const listResult = await listSavedWorkflows();
+      if (listResult.success && listResult.files) {
+        setSavedWorkflows(listResult.files);
+      }
+    } else {
+      toast.error(`Delete failed: ${result.error}`);
+    }
+    setLoading(false);
   };
 
   const activeWorkspace = workspaces.find((ws) => ws.id === activeWorkspaceId);
@@ -148,12 +252,19 @@ export function WorkspaceTabs() {
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <span className="text-xs font-medium truncate flex-1">
+            <span
+              className="text-xs font-medium truncate flex-1 cursor-text"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                handleStartRename(workspace.id, workspace.name);
+              }}
+              title="Double-click to rename"
+            >
               {workspace.name}
               {workspace.isDirty && <span className="text-yellow-500 ml-1">●</span>}
             </span>
           )}
-          
+
           {/* Tab actions */}
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
@@ -260,7 +371,18 @@ export function WorkspaceTabs() {
                       {new Date(wf.modified).toLocaleString()}
                     </p>
                   </div>
-                  <Upload className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+                      onClick={(e) => handleDeleteSaved(e, wf.filename)}
+                      title="Delete saved workflow"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Upload className="h-4 w-4 text-muted-foreground" />
+                  </div>
                 </div>
               ))
             )}

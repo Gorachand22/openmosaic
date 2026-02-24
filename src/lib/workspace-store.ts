@@ -26,18 +26,21 @@ interface WorkspaceState {
   updateWorkspace: (id: string, updates: Partial<Workspace>) => void;
   deleteWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
-  
+
   // Get active workspace
   getActiveWorkspace: () => Workspace | null;
-  
+
   // Save workspace to file
   saveWorkspaceToFile: (id: string) => Promise<{ success: boolean; path?: string; error?: string }>;
-  
-  // Load workspace from file
-  loadWorkspaceFromFile: (filepath: string) => Promise<{ success: boolean; workspace?: Workspace; error?: string }>;
-  
+
+  // Load workflow from file
+  loadWorkflowFromFile: (filepath: string) => Promise<{ success: boolean; workspace?: Workspace; error?: string }>;
+
   // List saved workflows
-  listSavedWorkflows: () => Promise<{ success: boolean; files?: string[]; error?: string }>;
+  listSavedWorkflows: () => Promise<{ success: boolean; files?: Array<{ filename: string; name: string; modified: Date }>; error?: string }>;
+
+  // Delete saved workflow
+  deleteSavedWorkflow: (filename: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -82,12 +85,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => {
           const newWorkspaces = state.workspaces.filter((ws) => ws.id !== id);
           let newActiveId = state.activeWorkspaceId;
-          
+
           // If deleting active workspace, switch to another
           if (state.activeWorkspaceId === id) {
             newActiveId = newWorkspaces[0]?.id || null;
           }
-          
+
           return {
             workspaces: newWorkspaces,
             activeWorkspaceId: newActiveId,
@@ -122,7 +125,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           });
 
           const data = await response.json();
-          
+
           if (data.success) {
             // Mark as not dirty
             set((state) => ({
@@ -132,12 +135,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }));
             return { success: true, path: data.path };
           }
-          
+
           return { success: false, error: data.error };
         } catch (error) {
-          return { 
-            success: false, 
-            error: error instanceof Error ? error.message : 'Unknown error' 
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
           };
         }
       },
@@ -146,7 +149,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         try {
           const response = await fetch(`/api/workflows/load?path=${encodeURIComponent(filepath)}`);
           const data = await response.json();
-          
+
           if (data.success && data.workflow) {
             // Add as new workspace
             const id = uuidv4();
@@ -156,20 +159,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               isDirty: false,
               updatedAt: new Date(),
             };
-            
+
             set((state) => ({
               workspaces: [...state.workspaces, workspace],
               activeWorkspaceId: id,
             }));
-            
+
             return { success: true, workspace };
           }
-          
+
           return { success: false, error: data.error };
         } catch (error) {
-          return { 
-            success: false, 
-            error: error instanceof Error ? error.message : 'Unknown error' 
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
           };
         }
       },
@@ -180,9 +183,24 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const data = await response.json();
           return { success: true, files: data.files };
         } catch (error) {
-          return { 
-            success: false, 
-            error: error instanceof Error ? error.message : 'Unknown error' 
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
+        }
+      },
+
+      deleteSavedWorkflow: async (filename) => {
+        try {
+          const response = await fetch(`/api/workflows/delete?filename=${encodeURIComponent(filename)}`, {
+            method: 'DELETE',
+          });
+          const data = await response.json();
+          return { success: data.success, error: data.error };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
           };
         }
       },

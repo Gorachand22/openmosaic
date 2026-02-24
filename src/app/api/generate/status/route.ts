@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const zai = await ZAI.create();
 
     // Check video generation status
-    const result = await zai.video.generations.check(taskId.trim());
+    const result = await (zai.video.generations as any).check(taskId.trim());
 
     const status = result.task_status || result.status;
     const videoUrl = result.video_url || result.output?.video_url;

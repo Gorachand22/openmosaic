@@ -21,6 +21,34 @@ export const FOLDERS = {
   TEMP: path.join(process.cwd(), 'temp'),
 } as const;
 
+export async function checkSystemDependencies() {
+  const ffmpeg = await checkFfmpeg();
+  const ytDlp = await checkYtDlp();
+  const manim = await checkManim();
+  const python = { installed: manim.installed, version: manim.version };
+  return { ffmpeg, ytDlp, manim, python };
+}
+
+export async function listFiles(folderName: string) {
+  try {
+    const dirMap: Record<string, string> = {
+      'input': FOLDERS.INPUT,
+      'output': FOLDERS.OUTPUT,
+      'workflows': FOLDERS.WORKFLOWS,
+    };
+    const targetDir = dirMap[folderName] || FOLDERS.TEMP;
+    // fs.existsSync is synchronous, but it's okay for checking directory existence before async operations
+    if (!await fs.stat(targetDir).then(() => true).catch(() => false)) return [];
+    const files = await fs.readdir(targetDir);
+    return Promise.all(files.map(async (file) => {
+      const stat = await fs.stat(path.join(targetDir, file));
+      return { name: file, size: stat.size, modified: stat.mtime };
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
 // Ensure folders exist
 export async function ensureFolders() {
   await Promise.all([
@@ -35,7 +63,7 @@ export async function ensureFolders() {
 export interface ExecutionResult {
   success: boolean;
   data?: unknown;
-  outputs?: Record<string, { type: string; path: string; url?: string }>;
+  outputs?: Record<string, { type: string; path: string; url?: string; data?: unknown }>;
   error?: string;
   progress?: number;
   message?: string;
@@ -96,23 +124,23 @@ export async function executeVideoInput(
 ): Promise<ExecutionResult> {
   try {
     onProgress?.(0, 'Loading video...');
-    
+
     if (config.source === 'url' && config.fileUrl) {
       // Check if YouTube URL
       const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//;
       if (youtubeRegex.test(config.fileUrl)) {
         return await downloadYouTubeVideo(config.fileUrl, config.fileName, onProgress);
       }
-      
+
       // Direct video URL - download
       onProgress?.(20, 'Downloading from URL...');
       const filename = config.fileName || `video_${uuidv4()}.mp4`;
       const outputPath = path.join(FOLDERS.INPUT, filename);
-      
+
       const response = await fetch(config.fileUrl);
       const buffer = await response.arrayBuffer();
       await fs.writeFile(outputPath, Buffer.from(buffer));
-      
+
       onProgress?.(100, 'Video downloaded!');
       return {
         success: true,
@@ -121,7 +149,7 @@ export async function executeVideoInput(
         }
       };
     }
-    
+
     // Upload mode - file should already be in input folder
     if (config.fileName) {
       const filePath = path.join(FOLDERS.INPUT, config.fileName);
@@ -138,7 +166,7 @@ export async function executeVideoInput(
         return { success: false, error: `File not found: ${config.fileName}` };
       }
     }
-    
+
     return { success: false, error: 'No video source provided' };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -161,20 +189,20 @@ export async function downloadYouTubeVideo(
 
   try {
     onProgress?.(0, 'Starting YouTube download...');
-    
+
     // Get video info first
     const { stdout: infoJson } = await execAsync(`yt-dlp --dump-json "${url}"`);
     const info = JSON.parse(infoJson);
-    
+
     onProgress?.(20, `Downloading: ${info.title}...`);
-    
+
     // Download with yt-dlp
     const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputPath}" "${url}"`;
     await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    
+
     const stats = await fs.stat(outputPath);
     onProgress?.(100, 'Download complete!');
-    
+
     return {
       success: true,
       message: `Downloaded: ${info.title}`,
@@ -201,7 +229,7 @@ export async function executeImageInput(
 ): Promise<ExecutionResult> {
   try {
     onProgress?.(0, 'Loading image...');
-    
+
     if (config.fileName) {
       const filePath = path.join(FOLDERS.INPUT, config.fileName);
       await fs.stat(filePath);
@@ -213,7 +241,7 @@ export async function executeImageInput(
         }
       };
     }
-    
+
     return { success: false, error: 'No image source provided' };
   } catch (error) {
     return { success: false, error: 'Image not found' };
@@ -227,7 +255,7 @@ export async function executeAudioInput(
 ): Promise<ExecutionResult> {
   try {
     onProgress?.(0, 'Loading audio...');
-    
+
     if (config.fileName) {
       const filePath = path.join(FOLDERS.INPUT, config.fileName);
       await fs.stat(filePath);
@@ -239,7 +267,7 @@ export async function executeAudioInput(
         }
       };
     }
-    
+
     return { success: false, error: 'No audio source provided' };
   } catch {
     return { success: false, error: 'Audio not found' };
@@ -271,10 +299,12 @@ export async function executeAIImage(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
+    console.log(`\n[AI IMAGE TILE] Start execution. Config:`, JSON.stringify(config));
     onProgress?.(0, 'Generating image with AI...');
-    
+
+    console.log(`[AI IMAGE TILE] Initializing ZAI client...`);
     const zai = await ZAI.create();
-    
+
     // Map aspect ratio to size
     const sizes: Record<string, string> = {
       '16:9': '1344x768',
@@ -282,28 +312,30 @@ export async function executeAIImage(
       '1:1': '1024x1024',
       '4:5': '864x1152',
     };
-    
+
     const size = sizes[config.aspectRatio] || '1024x1024';
-    
+
     onProgress?.(30, 'Creating image...');
-    
+
+    console.log(`[AI IMAGE TILE] Calling zai.images.generations.create with size ${size}...`);
     const response = await zai.images.generations.create({
       prompt: config.prompt,
       size: size as '1024x1024',
     });
-    
+    console.log(`[AI IMAGE TILE] Received API response success!`);
+
     const base64 = response.data?.[0]?.base64;
     if (!base64) {
       return { success: false, error: 'No image generated' };
     }
-    
+
     // Save to output folder
     const filename = `ai_image_${uuidv4()}.png`;
     const outputPath = path.join(FOLDERS.OUTPUT, filename);
     await fs.writeFile(outputPath, Buffer.from(base64, 'base64'));
-    
+
     onProgress?.(100, 'Image generated!');
-    
+
     return {
       success: true,
       outputs: {
@@ -311,6 +343,7 @@ export async function executeAIImage(
       }
     };
   } catch (error) {
+    console.error(`\n[AI IMAGE TILE] ERROR:`, error);
     return { success: false, error: `Image generation failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -322,20 +355,22 @@ export async function executeAIVideo(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
+    console.log(`\n[AI VIDEO TILE] Start execution. Config:`, JSON.stringify({ ...config, inputImage: inputImage ? '(image attached)' : 'none' }));
     onProgress?.(0, 'Generating video with AI...');
-    
+
+    console.log(`[AI VIDEO TILE] Initializing ZAI client...`);
     const zai = await ZAI.create();
-    
+
     const sizes: Record<string, string> = {
       '16:9': '1344x768',
       '9:16': '768x1344',
       '1:1': '1024x1024',
     };
-    
+
     const size = sizes[config.aspectRatio] || '768x1344';
-    
+
     onProgress?.(20, 'Starting video generation...');
-    
+
     const params: Record<string, unknown> = {
       prompt: config.prompt,
       size,
@@ -343,15 +378,17 @@ export async function executeAIVideo(
       quality: config.quality || 'speed',
       fps: 30,
     };
-    
+
     if (inputImage) {
       params.image_url = inputImage;
     }
-    
+
+    console.log(`[AI VIDEO TILE] Calling zai.video.generations.create with params:`, JSON.stringify(params));
     const task = await zai.video.generations.create(params);
-    
+    console.log(`[AI VIDEO TILE] Task created successfully. Task ID: ${task?.id}`);
+
     onProgress?.(50, 'Video processing...');
-    
+
     // Poll for completion (simplified)
     // In production, you'd use webhooks or polling
     let videoBase64 = null;
@@ -360,16 +397,16 @@ export async function executeAIVideo(
       // Check status - implementation depends on SDK
       onProgress?.(50 + (i * 0.8), 'Processing video...');
     }
-    
+
     if (!videoBase64) {
       return { success: false, error: 'Video generation timeout', data: { taskId: task.id } };
     }
-    
+
     const filename = `ai_video_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, filename);
-    
+
     onProgress?.(100, 'Video generated!');
-    
+
     return {
       success: true,
       outputs: {
@@ -377,6 +414,7 @@ export async function executeAIVideo(
       }
     };
   } catch (error) {
+    console.error(`\n[AI VIDEO TILE] ERROR:`, error);
     return { success: false, error: `Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -387,29 +425,32 @@ export async function executeAIAvatar(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
+    console.log(`\n[AI AVATAR TILE] Start execution. Config:`, JSON.stringify(config));
     onProgress?.(0, 'Generating AI avatar video...');
-    
+
     // This would integrate with avatar APIs like D-ID, Synthesia, etc.
     // For now, we'll use z-ai video generation
+    console.log(`[AI AVATAR TILE] Initializing ZAI client...`);
     const zai = await ZAI.create();
-    
+
     onProgress?.(30, 'Creating talking avatar...');
-    
+
+    console.log(`[AI AVATAR TILE] Calling zai.video.generations.create for avatar...`);
     const response = await zai.video.generations.create({
       prompt: `talking head avatar speaking: "${config.script}"`,
       size: '1024x1024',
       duration: Math.ceil(config.script.length / 15), // ~15 chars per second
       quality: 'speed',
     });
-    
+
     onProgress?.(80, 'Finalizing avatar...');
-    
+
     // In production, handle async video generation properly
     const filename = `avatar_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, filename);
-    
+
     onProgress?.(100, 'Avatar video generated!');
-    
+
     return {
       success: true,
       message: 'Avatar generation started',
@@ -419,6 +460,7 @@ export async function executeAIAvatar(
       }
     };
   } catch (error) {
+    console.error(`\n[AI AVATAR TILE] ERROR:`, error);
     return { success: false, error: `Avatar generation failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -440,25 +482,25 @@ export async function executeReframe(
 
   try {
     onProgress?.(0, 'Reframing video...');
-    
+
     // Get video dimensions
     const { stdout: probeOut } = await execAsync(
       `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${videoPath}"`
     );
-    
+
     const resolutions: Record<string, { w: number; h: number }> = {
       '9:16': { w: 1080, h: 1920 },
       '16:9': { w: 1920, h: 1080 },
       '1:1': { w: 1080, h: 1080 },
       '4:5': { w: 1080, h: 1350 },
     };
-    
+
     const target = resolutions[config.targetRatio] || resolutions['9:16'];
     const outputFilename = `reframed_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-    
+
     let command: string;
-    
+
     if (config.padding === 'blur') {
       command = `ffmpeg -i "${videoPath}" -filter_complex "[0:v]scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease[fg];[0:v]scale=${target.w}:${target.h}:force_original_aspect_ratio=increase,boxblur=20[bg];[bg][fg]overlay=(W-w)/2:(H-h)/2" -c:v libx264 -c:a aac "${outputPath}" -y`;
     } else if (config.padding === 'color') {
@@ -466,11 +508,11 @@ export async function executeReframe(
     } else {
       command = `ffmpeg -i "${videoPath}" -vf "scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease,pad=${target.w}:${target.h}:(ow-iw)/2:(oh-ih)/2:black" -c:v libx264 -c:a aac "${outputPath}" -y`;
     }
-    
+
     await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    
+
     onProgress?.(100, 'Reframe complete!');
-    
+
     return {
       success: true,
       outputs: {
@@ -478,6 +520,7 @@ export async function executeReframe(
       }
     };
   } catch (error) {
+    console.error(`\n[REFRAME TILE] ERROR:`, error);
     return { success: false, error: `Reframe failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -495,48 +538,49 @@ export async function executeClips(
 
   try {
     onProgress?.(0, 'Extracting clips...');
-    
+
     // Get video duration
     const { stdout: durationOut } = await execAsync(
       `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`
     );
     const totalDuration = parseFloat(durationOut);
-    
+
     const clips: Array<{ start: number; end: number }> = [];
     const clipDuration = config.minDuration;
     const interval = totalDuration / (config.clipCount + 1);
-    
+
     for (let i = 0; i < config.clipCount; i++) {
       const start = interval * (i + 0.5);
       const end = Math.min(start + clipDuration, totalDuration);
       clips.push({ start, end });
     }
-    
+
     const outputFiles: Record<string, { type: string; path: string; url: string }> = {};
-    
+
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       const clipFilename = `clip_${i + 1}_${uuidv4()}.mp4`;
       const outputPath = path.join(FOLDERS.OUTPUT, clipFilename);
-      
+
       onProgress?.(Math.round(((i + 1) / clips.length) * 100), `Extracting clip ${i + 1}/${clips.length}...`);
-      
+
       const command = `ffmpeg -i "${videoPath}" -ss ${clip.start} -to ${clip.end} -c:v libx264 -c:a aac "${outputPath}" -y`;
       await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-      
+
       outputFiles[`clip_${i + 1}`] = {
         type: 'video',
         path: outputPath,
         url: `/api/files/output/${clipFilename}`
       };
     }
-    
+
     return {
       success: true,
       message: `Extracted ${clips.length} clips`,
       outputs: outputFiles
     };
   } catch (error) {
+    console.error(`\n[CLIPS TILE] ERROR:`, error);
     return { success: false, error: `Clip extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -554,19 +598,19 @@ export async function executeSilenceRemoval(
 
   try {
     onProgress?.(0, 'Detecting silence...');
-    
+
     // Use silencedetect filter
     const { stdout } = await execAsync(
       `ffmpeg -i "${videoPath}" -af silencedetect=noise=${config.threshold}dB:d=${config.minDuration} -f null - 2>&1`
     );
-    
+
     // Parse silence timestamps
     const silenceStarts: number[] = [];
     const silenceEnds: number[] = [];
-    
+
     const startRegex = /silence_start: (\d+\.?\d*)/g;
     const endRegex = /silence_end: (\d+\.?\d*)/g;
-    
+
     let match;
     while ((match = startRegex.exec(stdout)) !== null) {
       silenceStarts.push(parseFloat(match[1]));
@@ -574,13 +618,13 @@ export async function executeSilenceRemoval(
     while ((match = endRegex.exec(stdout)) !== null) {
       silenceEnds.push(parseFloat(match[1]));
     }
-    
+
     onProgress?.(50, 'Removing silent segments...');
-    
+
     // Create segments to keep (inverse of silence)
     const segments: Array<{ start: number; end: number }> = [];
     let lastEnd = 0;
-    
+
     for (let i = 0; i < silenceStarts.length; i++) {
       const start = Math.max(0, silenceStarts[i] - config.padding);
       if (lastEnd < start) {
@@ -588,52 +632,52 @@ export async function executeSilenceRemoval(
       }
       lastEnd = silenceEnds[i] + config.padding;
     }
-    
+
     // Get total duration
     const { stdout: durOut } = await execAsync(
       `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`
     );
     const totalDuration = parseFloat(durOut);
-    
+
     if (lastEnd < totalDuration) {
       segments.push({ start: lastEnd, end: totalDuration });
     }
-    
+
     // Concatenate non-silent segments
     const outputFilename = `no_silence_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-    
+
     if (segments.length === 0) {
       // No silence detected, just copy
       await fs.copyFile(videoPath, outputPath);
     } else {
       // Create segment files and concatenate
       const segmentFiles: string[] = [];
-      
+
       for (let i = 0; i < segments.length; i++) {
         const seg = segments[i];
         const segFile = path.join(FOLDERS.TEMP, `seg_${i}.ts`);
         segmentFiles.push(segFile);
-        
+
         await execAsync(
           `ffmpeg -i "${videoPath}" -ss ${seg.start} -to ${seg.end} -c copy -bsf:v h264_mp4toannexb -f mpegts "${segFile}" -y`
         );
       }
-      
+
       // Concatenate
       const concatInput = segmentFiles.map(f => `'${f}'`).join('|');
       await execAsync(
         `ffmpeg -i "concat:${concatInput}" -c:v libx264 -c:a aac "${outputPath}" -y`
       );
-      
+
       // Cleanup temp files
       for (const f of segmentFiles) {
-        await fs.unlink(f).catch(() => {});
+        await fs.unlink(f).catch(() => { });
       }
     }
-    
+
     onProgress?.(100, 'Silence removed!');
-    
+
     return {
       success: true,
       outputs: {
@@ -641,8 +685,149 @@ export async function executeSilenceRemoval(
       }
     };
   } catch (error) {
+    console.error(`\n[SILENCE REMOVAL TILE] ERROR:`, error);
     return { success: false, error: `Silence removal failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
+}
+
+// Speed Adjustment
+export async function executeSpeed(
+  videoPath: string,
+  config: { speed: number; preserveAudio: boolean; pitchCorrection: boolean },
+  onProgress?: ProgressCallback
+): Promise<ExecutionResult> {
+  const ffmpegCheck = await checkFfmpeg();
+  if (!ffmpegCheck.installed) {
+    return { success: false, error: ffmpegCheck.error };
+  }
+
+  try {
+    onProgress?.(0, 'Adjusting video speed...');
+
+    const outputFilename = `speed_${uuidv4()}.mp4`;
+    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
+    const videoFilter = `setpts=${1 / config.speed}*PTS`;
+
+    // ATempo supports 0.5 to 100.0, if out of bounds need to chain it, but for our simple case:
+    const audioFilter = `atempo=${config.speed}`;
+
+    let command = `ffmpeg -i "${videoPath}" -filter_complex "[0:v]${videoFilter}[v]`;
+    if (config.preserveAudio) {
+      command += `;[0:a]${audioFilter}[a]" -map "[v]" -map "[a]"`;
+    } else {
+      command += `" -map "[v]"`;
+    }
+
+    command += ` -c:v libx264 -c:a aac "${outputPath}" -y`;
+
+    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
+    onProgress?.(100, 'Speed adjusted!');
+
+    return {
+      success: true,
+      outputs: {
+        video: { type: 'video', path: outputPath, url: `/api/files/output/${outputFilename}` }
+      }
+    };
+  } catch (error) {
+    console.error(`\n[SPEED TILE] ERROR:`, error);
+    return { success: false, error: `Speed adjustment failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
+}
+
+// Watermark
+export async function executeWatermark(
+  videoPath: string,
+  imagePath: string | undefined,
+  config: { position: string; opacity: number },
+  onProgress?: ProgressCallback
+): Promise<ExecutionResult> {
+  if (!imagePath) {
+    return { success: false, error: 'Watermark image is required.' };
+  }
+
+  const ffmpegCheck = await checkFfmpeg();
+  if (!ffmpegCheck.installed) {
+    return { success: false, error: ffmpegCheck.error };
+  }
+
+  try {
+    onProgress?.(0, 'Applying watermark...');
+    const outputFilename = `watermark_${uuidv4()}.mp4`;
+    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
+
+    // TopRight overlay position mapping based on "bottom-right", "top-left", etc
+    let overlayPos = 'main_w-overlay_w-10:main_h-overlay_h-10'; // default bottom right
+    if (config.position === 'top-left') overlayPos = '10:10';
+    if (config.position === 'top-right') overlayPos = 'main_w-overlay_w-10:10';
+    if (config.position === 'bottom-left') overlayPos = '10:main_h-overlay_h-10';
+
+    const command = `ffmpeg -i "${videoPath}" -i "${imagePath}" -filter_complex "[1:v]format=argb,colorchannelmixer=aa=${config.opacity / 100}[wm];[0:v][wm]overlay=${overlayPos}" -c:v libx264 -c:a copy "${outputPath}" -y`;
+
+    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
+    onProgress?.(100, 'Watermark applied!');
+
+    return {
+      success: true,
+      outputs: {
+        video: { type: 'video', path: outputPath, url: `/api/files/output/${outputFilename}` }
+      }
+    };
+  } catch (error) {
+    console.error(`\n[WATERMARK TILE] ERROR:`, error);
+    return { success: false, error: `Watermarking failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
+}
+
+// Reverse
+export async function executeReverse(
+  videoPath: string,
+  config: { reverseVideo: boolean; reverseAudio: boolean },
+  onProgress?: ProgressCallback
+): Promise<ExecutionResult> {
+  const ffmpegCheck = await checkFfmpeg();
+  if (!ffmpegCheck.installed) {
+    return { success: false, error: ffmpegCheck.error };
+  }
+
+  try {
+    onProgress?.(0, 'Reversing media...');
+    const outputFilename = `reverse_${uuidv4()}.mp4`;
+    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
+
+    let filters = '';
+    const maps: string[] = [];
+    if (config.reverseVideo) {
+      filters += '[0:v]reverse[v];';
+      maps.push('-map', '"[v]"');
+    } else {
+      maps.push('-map', '0:v');
+    }
+
+    if (config.reverseAudio) {
+      filters += '[0:a]areverse[a]';
+      maps.push('-map', '"[a]"');
+    } else {
+      maps.push('-map', '0:a');
+    }
+
+    const filterDirective = filters.endsWith(';') ? filters.slice(0, -1) : filters;
+    const command = `ffmpeg -i "${videoPath}" -filter_complex "${filterDirective}" ${maps.join(' ')} -c:v libx264 -c:a aac "${outputPath}" -y`;
+
+    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
+    onProgress?.(100, 'Media reversed!');
+
+    return {
+      success: true,
+      outputs: {
+        video: { type: 'video', path: outputPath, url: `/api/files/output/${outputFilename}` }
+      }
+    };
+  } catch (error) {
+    console.error(`\n[REVERSE TILE] ERROR:`, error);
+    return { success: false, error: `Reversal failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
+
 }
 
 // Add Captions
@@ -659,18 +844,18 @@ export async function executeCaptions(
 
   try {
     onProgress?.(0, 'Adding captions...');
-    
+
     // Generate SRT from transcript (simplified)
     // In production, use proper speech-to-text timestamps
     const words = transcript.split(' ');
     const srtLines: string[] = [];
     const wordsPerSecond = 3;
-    
+
     for (let i = 0; i < words.length; i += 4) {
       const chunk = words.slice(i, i + 4).join(' ');
       const startTime = (i / wordsPerSecond);
       const endTime = ((i + 4) / wordsPerSecond);
-      
+
       const formatTime = (s: number) => {
         const h = Math.floor(s / 3600);
         const m = Math.floor((s % 3600) / 60);
@@ -678,29 +863,29 @@ export async function executeCaptions(
         const ms = Math.floor((s % 1) * 1000);
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
       };
-      
+
       srtLines.push(`${Math.floor(i / 4) + 1}`);
       srtLines.push(`${formatTime(startTime)} --> ${formatTime(endTime)}`);
       srtLines.push(chunk);
       srtLines.push('');
     }
-    
+
     const srtPath = path.join(FOLDERS.TEMP, `${uuidv4()}.srt`);
     await fs.writeFile(srtPath, srtLines.join('\n'));
-    
+
     onProgress?.(50, 'Rendering captions...');
-    
+
     const outputFilename = `captioned_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-    
+
     const command = `ffmpeg -i "${videoPath}" -vf "subtitles='${srtPath}':force_style='FontSize=${config.fontSize},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2'" -c:v libx264 -c:a aac "${outputPath}" -y`;
-    
+
     await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    
-    await fs.unlink(srtPath).catch(() => {});
-    
+
+    await fs.unlink(srtPath).catch(() => { });
+
     onProgress?.(100, 'Captions added!');
-    
+
     return {
       success: true,
       outputs: {
@@ -708,6 +893,7 @@ export async function executeCaptions(
       }
     };
   } catch (error) {
+    console.error(`\n[CAPTIONS TILE] ERROR:`, error);
     return { success: false, error: `Captions failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -725,27 +911,27 @@ export async function executeAudioEnhance(
 
   try {
     onProgress?.(0, 'Enhancing audio...');
-    
+
     const outputFilename = `enhanced_audio_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-    
+
     // Audio enhancement filters
     let audioFilter = 'highpass=f=200,lowpass=f=3000';
-    
+
     if (config.noiseReduction) {
       audioFilter += ',afftdn=nf=-25';
     }
-    
+
     if (config.speechClarity) {
       audioFilter += ',equalizer=f=1000:t=q:w=1:g=3,dynaudnorm';
     }
-    
+
     const command = `ffmpeg -i "${videoPath}" -af "${audioFilter}" -c:v copy -c:a aac "${outputPath}" -y`;
-    
+
     await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    
+
     onProgress?.(100, 'Audio enhanced!');
-    
+
     return {
       success: true,
       outputs: {
@@ -753,6 +939,7 @@ export async function executeAudioEnhance(
       }
     };
   } catch (error) {
+    console.error(`\n[AUDIO ENHANCE TILE] ERROR:`, error);
     return { success: false, error: `Audio enhance failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -773,29 +960,29 @@ export async function executeTranscribe(
 
   try {
     onProgress?.(0, 'Extracting audio...');
-    
+
     // Extract audio first
     const audioPath = path.join(FOLDERS.TEMP, `${uuidv4()}.wav`);
     await execAsync(`ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`);
-    
+
     onProgress?.(20, 'Transcribing with Whisper...');
-    
+
     // Run whisper
     const outputPath = path.join(FOLDERS.OUTPUT, `transcript_${uuidv4()}`);
     const command = `whisper "${audioPath}" --model ${config.model || 'base'} --language ${config.language || 'en'} --output_dir "${FOLDERS.TEMP}" --output_format srt`;
-    
+
     await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    
+
     // Read the generated SRT
     const srtFile = audioPath.replace('.wav', '.srt');
     const transcript = await fs.readFile(srtFile, 'utf-8');
-    
+
     // Cleanup
-    await fs.unlink(audioPath).catch(() => {});
-    await fs.unlink(srtFile).catch(() => {});
-    
+    await fs.unlink(audioPath).catch(() => { });
+    await fs.unlink(srtFile).catch(() => { });
+
     onProgress?.(100, 'Transcription complete!');
-    
+
     return {
       success: true,
       outputs: {
@@ -804,6 +991,7 @@ export async function executeTranscribe(
       data: { transcript }
     };
   } catch (error) {
+    console.error(`\n[TRANSCRIBE TILE] ERROR:`, error);
     return { success: false, error: `Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -824,7 +1012,7 @@ export async function executeManim(
 
   try {
     onProgress?.(0, 'Creating Manim animation...');
-    
+
     // Create a Python file from the script
     const pythonScript = `
 from manim import *
@@ -833,31 +1021,31 @@ class GeneratedScene(Scene):
     def construct(self):
         ${script}
 `;
-    
+
     const scriptPath = path.join(FOLDERS.TEMP, `manim_${uuidv4()}.py`);
     await fs.writeFile(scriptPath, pythonScript);
-    
+
     onProgress?.(30, 'Rendering animation...');
-    
+
     // Run manim
     const quality = config.quality || 'p'; // p=1080p, m=720p, l=480p
     const format = config.format || 'mp4';
-    
+
     const command = `manim -${quality}qh "${scriptPath}" GeneratedScene -o animation.${format}`;
     await execAsync(command, { maxBuffer: 1024 * 1024 * 500, timeout: 300000 });
-    
+
     // Find the output file
     const mediaDir = path.join(FOLDERS.TEMP, 'media');
     const outputFile = path.join(FOLDERS.OUTPUT, `manim_${uuidv4()}.${format}`);
-    
+
     // Move the generated file (manim creates complex folder structure)
     // This is simplified - in production, parse the output path
     onProgress?.(90, 'Moving output...');
-    
-    await fs.unlink(scriptPath).catch(() => {});
-    
+
+    await fs.unlink(scriptPath).catch(() => { });
+
     onProgress?.(100, 'Animation complete!');
-    
+
     return {
       success: true,
       outputs: {
@@ -879,26 +1067,30 @@ export async function executeRemotion(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
+    console.log(`\n[REMOTION TILE] Start execution. Config:`, JSON.stringify(config));
     onProgress?.(0, 'Rendering Remotion video...');
-    
+
     // This requires a Remotion project to be set up
     // For now, we'll use the z-ai SDK to generate video
+    console.log(`[REMOTION TILE] Initializing ZAI client...`);
     const zai = await ZAI.create();
-    
+
     onProgress?.(30, 'Generating video frames...');
-    
+
+    console.log(`[REMOTION TILE] Calling zai.video.generations.create for remotion video...`);
     const response = await zai.video.generations.create({
       prompt: composition,
       size: `${config.width || 1080}x${config.height || 1920}`,
       duration: Math.ceil((config.durationInFrames || 150) / (config.fps || 30)),
       quality: 'speed',
     });
-    
+
+    console.log(`[REMOTION TILE] Received response successfully. Task ID: ${response?.id}`);
     onProgress?.(100, 'Remotion video complete!');
-    
+
     const filename = `remotion_${uuidv4()}.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, filename);
-    
+
     return {
       success: true,
       outputs: {
@@ -907,6 +1099,7 @@ export async function executeRemotion(
       data: { taskId: response.id }
     };
   } catch (error) {
+    console.error(`\n[REMOTION TILE] ERROR:`, error);
     return { success: false, error: `Remotion failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
@@ -927,25 +1120,25 @@ export async function executeVideoOutput(
 
   try {
     onProgress?.(0, 'Exporting video...');
-    
+
     const resolutions: Record<string, string> = {
       '720p': '1280:720',
       '1080p': '1920:1080',
       '4k': '3840:2160',
     };
-    
+
     const scale = resolutions[config.resolution] || resolutions['1080p'];
     const outputFilename = `output_${uuidv4()}.${config.format || 'mp4'}`;
     const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-    
+
     const crf = config.quality === 'high' ? 18 : config.quality === 'medium' ? 23 : 28;
-    
+
     const command = `ffmpeg -i "${videoPath}" -vf "scale=${scale}" -r ${config.fps || 30} -c:v libx264 -crf ${crf} -c:a aac "${outputPath}" -y`;
-    
+
     await execAsync(command, { maxBuffer: 1024 * 1024 * 200 });
-    
+
     onProgress?.(100, 'Video exported!');
-    
+
     return {
       success: true,
       outputs: {

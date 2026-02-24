@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   if (category) {
     const tiles = Object.entries(TILE_REGISTRY)
       .filter(([, tile]) => tile.category === category)
-      .map(([type, tile]) => ({ type, ...tile }));
+      .map(([, tile]) => tile);
 
     return NextResponse.json({
       success: true,
@@ -34,14 +34,14 @@ export async function GET(request: NextRequest) {
 
   // Get all tiles grouped by category
   const groupedTiles = {
-    input: [] as Array<{ type: string; [key: string]: unknown }>,
-    action: [] as Array<{ type: string; [key: string]: unknown }>,
-    output: [] as Array<{ type: string; [key: string]: unknown }>,
-    logic: [] as Array<{ type: string; [key: string]: unknown }>,
+    input: [] as Array<{ type: string;[key: string]: unknown }>,
+    action: [] as Array<{ type: string;[key: string]: unknown }>,
+    output: [] as Array<{ type: string;[key: string]: unknown }>,
+    logic: [] as Array<{ type: string;[key: string]: unknown }>,
   };
 
   Object.entries(TILE_REGISTRY).forEach(([type, tile]) => {
-    groupedTiles[tile.category].push({ type, ...tile });
+    groupedTiles[tile.category].push({ ...tile } as any);
   });
 
   return NextResponse.json({

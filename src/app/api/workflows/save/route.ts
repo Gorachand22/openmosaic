@@ -10,15 +10,15 @@ import { FOLDERS } from '@/lib/tile-executor';
 export async function POST(request: NextRequest) {
   try {
     const workflow = await request.json();
-    
-    // Generate filename
-    const filename = `${workflow.name || 'workflow'}_${Date.now()}.json`
-      .replace(/[^a-zA-Z0-9_.-]/g, '_');
+
+    // Generate consistent filename based on ID to overwrite instead of duplicated files
+    const safeId = workflow.id ? workflow.id.replace(/[^a-zA-Z0-9_-]/g, '') : Date.now();
+    const filename = `workflow_${safeId}.json`;
     const filepath = path.join(FOLDERS.WORKFLOWS, filename);
-    
+
     // Save workflow
     await writeFile(filepath, JSON.stringify(workflow, null, 2));
-    
+
     return NextResponse.json({
       success: true,
       path: filepath,

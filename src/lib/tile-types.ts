@@ -11,6 +11,7 @@ export type TileStatus = 'idle' | 'processing' | 'completed' | 'error';
 
 // Base Tile Data
 export interface BaseTileData {
+  [key: string]: unknown;
   label: string;
   category: TileCategory;
   status: TileStatus;
@@ -294,7 +295,8 @@ export interface TilePort {
   id: string;
   type: PortType;
   label: string;
-  required: boolean;
+  required?: boolean;
+  description?: string;
 }
 
 // Tile Definition for registry

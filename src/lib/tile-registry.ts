@@ -24,7 +24,7 @@ interface TileOutput {
 export const TILE_REGISTRY: Record<string, TileDefinition> = {
   // ============ INPUT TILES ============
   // Bring media into the workflow
-  
+
   'video-input': {
     type: 'video-input',
     category: 'input',
@@ -1083,6 +1083,46 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     ],
     isConfigurable: true,
   },
+  // ============ UTILITY TILES ============
+
+  'merge-video': {
+    type: 'merge-video',
+    category: 'logic',
+    label: 'Merge Video',
+    description: 'Concatenate multiple videos consecutively',
+    icon: 'Layers',
+    defaultConfig: {
+      transition: 'none', // 'none' | 'fade' | 'crossfade'
+    },
+    inputs: [
+      { id: 'video1', type: 'video', label: 'Video 1', required: true },
+      { id: 'video2', type: 'video', label: 'Video 2', required: true },
+      { id: 'video3', type: 'video', label: 'Video 3', required: false },
+    ],
+    outputs: [
+      { id: 'video', type: 'video', label: 'Merged Video', description: 'Combined video' },
+    ],
+    isConfigurable: true,
+  },
+
+  'split-video': {
+    type: 'split-video',
+    category: 'action',
+    label: 'Split Video',
+    description: 'Split a video into two segments at a timestamp',
+    icon: 'Scissors',
+    defaultConfig: {
+      splitTime: 5, // Split at 5 seconds
+    },
+    inputs: [
+      { id: 'video', type: 'video', label: 'Video', required: true },
+    ],
+    outputs: [
+      { id: 'video1', type: 'video', label: 'Part 1', description: 'First segment' },
+      { id: 'video2', type: 'video', label: 'Part 2', description: 'Second segment' },
+    ],
+    isConfigurable: true,
+  },
 };
 
 // ============ HELPER FUNCTIONS ============
@@ -1126,6 +1166,6 @@ export function getTilesForPlatform(platform: 'youtube' | 'instagram' | 'tiktok'
     tiktok: ['video-input', 'reframe', 'cinematic-captions', 'motion-graphics', 'destination'],
     twitter: ['video-input', 'clips', 'captions', 'destination'],
   };
-  
+
   return platformTiles[platform]?.map(type => TILE_REGISTRY[type]).filter(Boolean) || [];
 }

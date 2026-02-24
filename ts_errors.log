@@ -1,0 +1,23 @@
+examples/websocket/frontend.tsx(4,20): error TS2307: Cannot find module 'socket.io-client' or its corresponding type declarations.
+examples/websocket/server.ts(2,24): error TS2307: Cannot find module 'socket.io' or its corresponding type declarations.
+skills/frontend-design/examples/typescript/sample-components.tsx(107,11): error TS2430: Interface 'InputProps' incorrectly extends interface 'InputHTMLAttributes<HTMLInputElement>'.
+  Types of property 'size' are incompatible.
+    Type '"lg" | "md" | "sm" | undefined' is not assignable to type 'number | undefined'.
+      Type 'string' is not assignable to type 'number'.
+skills/frontend-design/examples/typescript/theme-provider.tsx(237,54): error TS2503: Cannot find namespace 'JSX'.
+src/app/api/agent/route.ts(205,17): error TS18047: 'steps' is possibly 'null'.
+src/app/api/chat/route.ts(152,7): error TS2322: Type '{ role: string; content: string; }[]' is not assignable to type 'ChatMessage[]'.
+  Type '{ role: string; content: string; }' is not assignable to type 'ChatMessage'.
+    Types of property 'role' are incompatible.
+      Type 'string' is not assignable to type '"user" | "system" | "assistant"'.
+src/app/api/generate/status/route.ts(29,48): error TS2339: Property 'check' does not exist on type '{ create: (body: CreateVideoGenerationBody) => Promise<VideoGenerationResponse>; }'.
+src/app/api/system/status/route.ts(4,3): error TS2305: Module '"@/lib/tile-executor"' has no exported member 'checkSystemDependencies'.
+src/app/api/system/status/route.ts(5,3): error TS2305: Module '"@/lib/tile-executor"' has no exported member 'listFiles'.
+src/app/api/tiles/route.ts(26,33): error TS2783: 'type' is specified more than once, so this usage will be overwritten.
+src/app/api/tiles/route.ts(44,40): error TS2783: 'type' is specified more than once, so this usage will be overwritten.
+src/components/canvas/Canvas.tsx(314,9): error TS2322: Type '"bezier"' is not assignable to type 'ConnectionLineType | undefined'.
+src/components/canvas/Canvas.tsx(315,62): error TS2345: Argument of type 'Connection | Edge' is not assignable to parameter of type 'Connection'.
+  Type 'Edge' is not assignable to type 'Connection'.
+    Types of property 'sourceHandle' are incompatible.
+      Type 'string | null | undefined' is not assignable to type 'string | null'.
+        Type 'undefined' is not assignable to type 'string | null'.

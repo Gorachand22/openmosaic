@@ -10,8 +10,9 @@ import { useWorkspaceStore } from '@/lib/workspace-store';
 import { TilePanel } from '@/components/canvas/TilePanel';
 import { PropertiesPanel } from '@/components/canvas/PropertiesPanel';
 import { FloatingChatbot } from '@/components/canvas/FloatingChatbot';
-import { SettingsPanel, type EdgeStyle } from '@/components/canvas/SettingsPanel';
+import { SettingsPanel } from '@/components/canvas/SettingsPanel';
 import { WorkspaceTabs } from '@/components/canvas/WorkspaceTabs';
+import { TemplatesModal } from '@/components/canvas/TemplatesModal';
 import { Toaster } from '@/components/ui/sonner';
 import { Menu, X, ChevronLeft, ChevronRight, Settings2 } from 'lucide-react';
 import { useState } from 'react';
@@ -27,20 +28,37 @@ export default function OpenMosaicPage() {
   const { workspaces, activeWorkspaceId, createWorkspace, getActiveWorkspace } = useWorkspaceStore();
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
-  
-  // Settings state
-  const [edgeStyle, setEdgeStyle] = useState<EdgeStyle>('bezier');
-  const [snapToGrid, setSnapToGrid] = useState(true);
-  const [showMinimap, setShowMinimap] = useState(true);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
 
-  // Create initial workspace if none exists
+  // Create initial workspace if none exists after hydration
   useEffect(() => {
-    if (workspaces.length === 0) {
-      createWorkspace('Untitled Workflow');
-    }
-  }, [workspaces.length, createWorkspace]);
+    const timer = setTimeout(() => {
+      const state = useWorkspaceStore.getState();
+      if (state.workspaces.length === 0) {
+        state.createWorkspace('Untitled Workflow');
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   const activeWorkspace = getActiveWorkspace();
+
+  // Handle R key reload shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key.toLowerCase() === 'r' &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA'
+      ) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-background">
@@ -61,39 +79,22 @@ export default function OpenMosaicPage() {
               </p>
             </div>
           </div>
-
-          {/* Workflow Name */}
-          <div className="hidden md:flex items-center gap-2 ml-4">
-            <Input
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              className="h-8 w-48 text-sm bg-transparent border-transparent hover:border-border focus:border-border"
-            />
-            {isDirty && (
-              <span className="text-[10px] text-yellow-500">●</span>
-            )}
-          </div>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Quick Actions */}
-          <Button variant="ghost" size="sm" className="hidden sm:flex">
-            Templates
-          </Button>
-          <Button variant="ghost" size="sm" className="hidden sm:flex">
-            Examples
-          </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="bg-gradient-to-r from-blue-500 to-purple-500 text-white border-0 hover:from-blue-600 hover:to-purple-600"
+            className="hidden sm:flex bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 hover:text-purple-400 transition-all font-medium"
+            onClick={() => setIsTemplatesOpen(true)}
           >
-            Share
+            Templates
           </Button>
 
           {/* GitHub Link */}
           <a
-            href="https://github.com/openmosaic"
+            href="https://github.com/Gorachand22/openmosaic"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:block"
@@ -109,13 +110,13 @@ export default function OpenMosaicPage() {
             </Button>
           </a>
         </div>
-      </header>
+      </header >
 
       {/* Workspace Tabs */}
-      <WorkspaceTabs />
+      < WorkspaceTabs />
 
       {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
+      < main className="flex-1 flex overflow-hidden" >
         <ResizablePanelGroup direction="horizontal" className="h-full">
           {/* Left Panel - Tiles */}
           <ResizablePanel
@@ -178,10 +179,10 @@ export default function OpenMosaicPage() {
             </Button>
           )}
         </ResizablePanelGroup>
-      </main>
+      </main >
 
       {/* Footer */}
-      <footer className="h-8 border-t border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center justify-between px-4 text-[10px] text-muted-foreground">
+      < footer className="h-8 border-t border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center justify-between px-4 text-[10px] text-muted-foreground" >
         <div className="flex items-center gap-4">
           <span>OpenMosaic v0.2.0</span>
           <span>•</span>
@@ -195,7 +196,7 @@ export default function OpenMosaicPage() {
           </span>
           <span>•</span>
           <a
-            href="https://github.com/openmosaic"
+            href="https://github.com/Gorachand22/openmosaic"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"
@@ -203,22 +204,20 @@ export default function OpenMosaicPage() {
             GitHub
           </a>
         </div>
-      </footer>
+      </footer >
 
       {/* Floating AI Chatbot */}
-      <FloatingChatbot />
-      
+      < FloatingChatbot />
+
       {/* Settings Panel - Bottom Left */}
-      <SettingsPanel
-        edgeStyle={edgeStyle}
-        onEdgeStyleChange={setEdgeStyle}
-        snapToGrid={snapToGrid}
-        onSnapToGridChange={setSnapToGrid}
-        showMinimap={showMinimap}
-        onShowMinimapChange={setShowMinimap}
+      < SettingsPanel />
+
+      <TemplatesModal
+        isOpen={isTemplatesOpen}
+        onClose={() => setIsTemplatesOpen(false)}
       />
 
       <Toaster />
-    </div>
+    </div >
   );
 }

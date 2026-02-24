@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  MessageCircle, X, Send, Loader2, Sparkles, Trash2, 
+import {
+  MessageCircle, X, Send, Loader2, Sparkles, Trash2,
   Copy, Check, Bot, Zap, CheckCircle2, Circle, Play
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCanvasStore } from '@/lib/canvas-store';
+import { useWorkspaceStore } from '@/lib/workspace-store';
 import { TILE_REGISTRY } from '@/lib/tile-registry';
 
 interface Message {
@@ -56,15 +57,17 @@ export function FloatingChatbot() {
       recentActions: [],
     },
   });
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { nodes, edges, addNodeWithConnection, clearCanvas, connectNodesById } = useCanvasStore();
+  const { activeWorkspaceId } = useWorkspaceStore();
 
   // Load memory from localStorage
   useEffect(() => {
-    const savedMemory = localStorage.getItem('openmosaic-chat-memory');
+    if (!activeWorkspaceId) return;
+    const savedMemory = localStorage.getItem(`openmosaic-chat-memory-${activeWorkspaceId}`);
     if (savedMemory) {
       try {
         const parsed = JSON.parse(savedMemory);
@@ -79,11 +82,23 @@ export function FloatingChatbot() {
       } catch (e) {
         console.error('Failed to load memory:', e);
       }
+    } else {
+      // Clear memory if switching to a new tab without history
+      setMessages([]);
+      setMemory({
+        messages: [],
+        context: {
+          currentWorkflow: 'Untitled Workflow',
+          selectedTile: null,
+          recentActions: [],
+        },
+      });
     }
-  }, []);
+  }, [activeWorkspaceId]);
 
   // Save memory to localStorage
   useEffect(() => {
+    if (!activeWorkspaceId) return;
     if (messages.length > 0) {
       const newMemory: ConversationMemory = {
         messages,
@@ -93,10 +108,10 @@ export function FloatingChatbot() {
           recentActions: memory.context.recentActions.slice(-10),
         },
       };
-      localStorage.setItem('openmosaic-chat-memory', JSON.stringify(newMemory));
+      localStorage.setItem(`openmosaic-chat-memory-${activeWorkspaceId}`, JSON.stringify(newMemory));
       setMemory(newMemory);
     }
-  }, [messages]);
+  }, [messages, activeWorkspaceId]);
 
   useEffect(() => {
     if (isExpanded && inputRef.current) {
@@ -138,11 +153,11 @@ export function FloatingChatbot() {
         const row = Math.floor(i / 3);
         const col = i % 3;
         const position = { x: 100 + col * 300, y: 100 + row * 180 };
-        
+
         // Add node with connection to previous
         const nodeId = addNodeWithConnection(
-          step.tileType, 
-          position, 
+          step.tileType,
+          position,
           previousNodeId !== null
         );
         nodeIds[step.tileType] = nodeId;
@@ -252,7 +267,9 @@ export function FloatingChatbot() {
   };
 
   const clearMemory = () => {
-    localStorage.removeItem('openmosaic-chat-memory');
+    if (activeWorkspaceId) {
+      localStorage.removeItem(`openmosaic-chat-memory-${activeWorkspaceId}`);
+    }
     const greeting: Message = {
       id: Date.now().toString(),
       role: 'assistant',
@@ -350,7 +367,7 @@ export function FloatingChatbot() {
       )}
 
       {/* Messages */}
-      <div 
+      <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden p-3"
       >
@@ -366,7 +383,7 @@ export function FloatingChatbot() {
               </p>
             </div>
           )}
-          
+
           {messages.map((message) => (
             <div
               key={message.id}
@@ -381,10 +398,10 @@ export function FloatingChatbot() {
                   message.role === 'user'
                     ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-br-md'
                     : message.role === 'system'
-                    ? message.content.includes('✅') 
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 rounded-md'
-                      : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 rounded-md'
-                    : 'bg-muted rounded-bl-md'
+                      ? message.content.includes('✅')
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 rounded-md'
+                        : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 rounded-md'
+                      : 'bg-muted rounded-bl-md'
                 )}
               >
                 {message.role === 'assistant' && (
@@ -402,7 +419,7 @@ export function FloatingChatbot() {
                     return isNaN(ts.getTime()) ? 'Now' : ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                   })()}
                 </div>
-                
+
                 {/* Copy button */}
                 {message.role !== 'system' && (
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -423,7 +440,7 @@ export function FloatingChatbot() {
               </div>
             </div>
           ))}
-          
+
           {isLoading && (
             <div className="flex justify-start">
               <div className="bg-muted rounded-2xl rounded-bl-md px-3 py-2">
@@ -431,7 +448,7 @@ export function FloatingChatbot() {
               </div>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
       </div>

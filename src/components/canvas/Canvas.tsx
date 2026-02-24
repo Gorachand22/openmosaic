@@ -24,6 +24,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { useCanvasStore } from '@/lib/canvas-store';
+import type { TileData } from '@/lib/tile-types';
 import { TileNode } from './TileNode';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -38,11 +39,14 @@ import {
   CheckCircle2,
   XCircle,
   Trash2,
+  GripHorizontal,
 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useWorkspaceStore } from '@/lib/workspace-store';
 
 // Custom node types
 const nodeTypes = {
-  tile: TileNode,
+  tile: TileNode as any,
 };
 
 interface CanvasProps {
@@ -50,36 +54,36 @@ interface CanvasProps {
 }
 
 // Check if connection is valid
-const isValidConnection = (connection: Connection, nodes: Node[], edges: Edge[]): boolean => {
+const isValidConnection = (connection: Connection, nodes: Node<TileData>[], edges: Edge[]): boolean => {
   const sourceNode = nodes.find(n => n.id === connection.source);
   const targetNode = nodes.find(n => n.id === connection.target);
-  
+
   if (!sourceNode || !targetNode) return false;
   // Prevent self-connection
   if (connection.source === connection.target) return false;
-  
+
   // Get tile definitions
-  const sourceTileType = sourceNode.data?.tileType || sourceNode.data?.label?.toLowerCase().replace(/\s+/g, '-');
-  const targetTileType = targetNode.data?.tileType || targetNode.data?.label?.toLowerCase().replace(/\s+/g, '-');
-  
+  const sourceTileType = String(sourceNode.data?.tileType || sourceNode.data?.label).toLowerCase().replace(/\s+/g, '-');
+  const targetTileType = String(targetNode.data?.tileType || targetNode.data?.label).toLowerCase().replace(/\s+/g, '-');
+
   const sourceDef = TILE_REGISTRY[sourceTileType];
   const targetDef = TILE_REGISTRY[targetTileType];
-  
+
   if (!sourceDef || !targetDef) return true; // Allow if unknown
-  
+
   // Find the output/input handle type
   const sourceOutput = sourceDef.outputs.find(o => o.id === connection.sourceHandle);
   const targetInput = targetDef.inputs.find(i => i.id === connection.targetHandle);
-  
+
   // If no specific handle info, allow connection
   if (!sourceOutput || !targetInput) return true;
-  
+
   // Check type compatibility
-  const isTypeMatch = 
-    sourceOutput.type === targetInput.type || 
+  const isTypeMatch =
+    sourceOutput.type === targetInput.type ||
     targetInput.type === 'any' ||
     sourceOutput.type === 'any';
-  
+
   return isTypeMatch;
 };
 
@@ -101,18 +105,26 @@ function CanvasInner({ className }: CanvasProps) {
     executeAll,
     stopExecution,
     isExecuting,
-    undo,
-    redo,
     saveWorkflow,
     workflowName,
-    isDirty,
+    isDirty: canvasIsDirty,
     deleteNode,
+    edgeStyle,
+    snapToGrid,
+    showMinimap,
   } = useCanvasStore();
+
+  const activeWorkspace = useWorkspaceStore((state) =>
+    state.workspaces.find((ws) => ws.id === state.activeWorkspaceId)
+  );
+
+  const displayWorkflowName = activeWorkspace?.name || workflowName;
+  const isDirty = activeWorkspace?.isDirty || canvasIsDirty;
 
   // Handle node changes (position, selection, etc.)
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
-      setNodes(applyNodeChanges(changes, nodes));
+      setNodes(applyNodeChanges<any>(changes, nodes) as any);
     },
     [nodes, setNodes]
   );
@@ -141,10 +153,11 @@ function CanvasInner({ className }: CanvasProps) {
   );
 
   // Handle new connections with validation
-  const onConnect: OnConnect = useCallback(
-    (connection) => {
-      if (isValidConnection(connection, nodes, edges)) {
-        connectNodes(connection);
+  const onConnect = useCallback(
+    (connection: Connection | Edge) => {
+      // For validation, we treat Edge as Connection
+      if (isValidConnection(connection as Connection, nodes, edges)) {
+        connectNodes(connection as Connection);
         setConnectionStatus('valid');
         setTimeout(() => setConnectionStatus(null), 1500);
       } else {
@@ -226,25 +239,13 @@ function CanvasInner({ className }: CanvasProps) {
       const isInputFocused = ['INPUT', 'TEXTAREA'].includes(
         (document.activeElement?.tagName || '')
       );
-      
+
       if (isInputFocused) return;
 
       // Delete selected nodes with Delete or Backspace
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
         deleteSelectedNodes();
-      }
-
-      // Undo with Ctrl+Z
-      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
-        event.preventDefault();
-        undo();
-      }
-
-      // Redo with Ctrl+Shift+Z or Ctrl+Y
-      if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || (event.key === 'z' && event.shiftKey))) {
-        event.preventDefault();
-        redo();
       }
 
       // Select all with Ctrl+A
@@ -258,7 +259,7 @@ function CanvasInner({ className }: CanvasProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteSelectedNodes, undo, redo, nodes, setNodes]);
+  }, [deleteSelectedNodes, nodes, setNodes]);
 
   // Export workflow as JSON
   const handleExport = () => {
@@ -291,7 +292,7 @@ function CanvasInner({ className }: CanvasProps) {
         onSelectionChange={onSelectionChange}
         nodeTypes={nodeTypes}
         fitView
-        snapToGrid
+        snapToGrid={snapToGrid}
         snapGrid={[15, 15]}
         // Multi-select only with Ctrl pressed, otherwise pan with left mouse
         selectionMode={SelectionMode.Partial}
@@ -300,17 +301,17 @@ function CanvasInner({ className }: CanvasProps) {
         selectionKeyCode={['Control', 'Meta']}
         // Smooth bezier edges
         defaultEdgeOptions={{
-          type: 'bezier',
+          type: edgeStyle,
           animated: true,
           style: { strokeWidth: 2, stroke: '#6366f1' },
         }}
-        connectionLineStyle={{ 
-          strokeWidth: 2, 
+        connectionLineStyle={{
+          strokeWidth: 2,
           stroke: connectionStatus === 'invalid' ? '#ef4444' : '#6366f1',
           strokeDasharray: connectionStatus === 'invalid' ? '5,5' : 'none',
         }}
-        connectionLineType="bezier"
-        isValidConnection={(connection) => isValidConnection(connection, nodes, edges)}
+        connectionLineType={edgeStyle as any}
+        isValidConnection={(connection) => isValidConnection(connection as any, nodes, edges)}
         proOptions={{ hideAttribution: true }}
         className="bg-background"
         deleteKeyCode={['Delete', 'Backspace']}
@@ -323,36 +324,44 @@ function CanvasInner({ className }: CanvasProps) {
           color="hsl(var(--border))"
         />
         <Controls className="bg-background/90 border border-border rounded-lg shadow-lg" />
-        <MiniMap
-          className="bg-background/90 border border-border rounded-lg shadow-lg"
-          nodeColor={(node) => {
-            const category = node.data?.category;
-            switch (category) {
-              case 'input':
-                return '#3b82f6';
-              case 'action':
-                return '#a855f7';
-              case 'output':
-                return '#22c55e';
-              case 'logic':
-                return '#f97316';
-              default:
-                return '#6b7280';
-            }
-          }}
-          maskColor="rgba(0, 0, 0, 0.8)"
-        />
+        {showMinimap && (
+          <MiniMap
+            className="bg-background/90 border border-border rounded-lg shadow-lg"
+            nodeColor={(node) => {
+              const category = node.data?.category;
+              switch (category) {
+                case 'input':
+                  return '#3b82f6';
+                case 'action':
+                  return '#a855f7';
+                case 'output':
+                  return '#22c55e';
+                case 'logic':
+                  return '#f97316';
+                default:
+                  return '#6b7280';
+              }
+            }}
+            maskColor="rgba(0, 0, 0, 0.8)"
+          />
+        )}
 
-        {/* Top Toolbar */}
-        <Panel position="top-center" className="flex items-center gap-2">
-          <div className="bg-background/90 border border-border rounded-lg shadow-lg px-4 py-2 flex items-center gap-4">
+        {/* Top Toolbar - Draggable */}
+        <Panel position="top-center" className="flex items-center gap-2 pointer-events-none pt-4">
+          <motion.div
+            drag
+            dragMomentum={false}
+            whileDrag={{ scale: 1.02, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)" }}
+            className="bg-background/95 backdrop-blur border border-border rounded-xl shadow-lg px-4 py-2 flex items-center gap-4 cursor-move pointer-events-auto"
+          >
+            <GripHorizontal className="h-4 w-4 text-muted-foreground/50 mx-[-8px]" />
             {/* Workflow Name */}
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
                 OpenMosaic
               </h1>
               <span className="text-muted-foreground">|</span>
-              <span className="text-sm font-medium">{workflowName}</span>
+              <span className="text-sm font-medium">{displayWorkflowName}</span>
               {isDirty && (
                 <Badge variant="secondary" className="text-[10px]">
                   Unsaved
@@ -362,25 +371,13 @@ function CanvasInner({ className }: CanvasProps) {
 
             <span className="text-muted-foreground">|</span>
 
-            {/* Undo/Redo */}
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={undo} title="Undo (Ctrl+Z)">
-                <Undo className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={redo} title="Redo (Ctrl+Y)">
-                <Redo className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <span className="text-muted-foreground">|</span>
-
             {/* Delete selected (only show when nodes selected) */}
             {selectedNodeIds.length > 0 && (
               <>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20" 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20"
                   onClick={deleteSelectedNodes}
                   title="Delete selected (Delete)"
                 >
@@ -421,7 +418,7 @@ function CanvasInner({ className }: CanvasProps) {
                 <Download className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </motion.div>
         </Panel>
 
         {/* Stats Panel */}
@@ -444,8 +441,8 @@ function CanvasInner({ className }: CanvasProps) {
           <Panel position="top-right" className="mt-16">
             <div className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-sm font-medium",
-              connectionStatus === 'valid' 
-                ? "bg-green-500/90 text-white" 
+              connectionStatus === 'valid'
+                ? "bg-green-500/90 text-white"
                 : "bg-red-500/90 text-white"
             )}>
               {connectionStatus === 'valid' ? (

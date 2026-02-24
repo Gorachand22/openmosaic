@@ -63,7 +63,7 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
   // Handle config change
   const handleConfigChange = (key: string, value: unknown) => {
     updateNode(selectedNodeId!, {
-      config: { ...config, [key]: value },
+      config: { ...config, [key]: value } as any,
     });
   };
 
@@ -91,15 +91,15 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
     if (fieldType === 'number') {
       const numericValue = value as number;
       const isPercentage = key.toLowerCase().includes('volume') ||
-                           key.toLowerCase().includes('brightness') ||
-                           key.toLowerCase().includes('contrast') ||
-                           key.toLowerCase().includes('saturation') ||
-                           key.toLowerCase().includes('opacity') ||
-                           key.toLowerCase().includes('speed') ||
-                           key.toLowerCase().includes('pitch');
+        key.toLowerCase().includes('brightness') ||
+        key.toLowerCase().includes('contrast') ||
+        key.toLowerCase().includes('saturation') ||
+        key.toLowerCase().includes('opacity') ||
+        key.toLowerCase().includes('speed') ||
+        key.toLowerCase().includes('pitch');
 
       const isTime = key.toLowerCase().includes('time') ||
-                    key.toLowerCase().includes('duration');
+        key.toLowerCase().includes('duration');
 
       if (isPercentage) {
         return (
@@ -176,7 +176,8 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
     }
 
     if (key === 'format') {
-      const formats = config.format === 'srt' || config.format === 'vtt' || config.format === 'ass'
+      const formatValue = (config as any).format;
+      const formats = formatValue === 'srt' || formatValue === 'vtt' || formatValue === 'ass'
         ? ['srt', 'vtt', 'ass']
         : ['mp4', 'webm', 'mov'];
 
