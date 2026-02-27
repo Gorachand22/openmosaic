@@ -32,73 +32,46 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Upload local video or paste link (YouTube, etc.) - Max 20 GB, 300 min',
     icon: 'Video',
     defaultConfig: {
-      source: 'upload', // 'upload' | 'url'
-      fileUrl: undefined,
-      fileName: undefined,
-      duration: undefined,
-      resolution: undefined,
-      fps: 30,
+      source: 'upload', // 'upload' | 'youtube'
+      fileName: '',
+      youtubeUrl: '',
+      subtitleLanguage: 'en,hi',
+      separateAudio: true,
     },
     inputs: [],
     outputs: [
-      { id: 'video', type: 'video', label: 'Raw Video', description: 'Raw video for the workflow' },
-      { id: 'audio', type: 'audio', label: 'Audio Track', description: 'Extracted audio' },
+      { id: 'video', type: 'video', label: 'Video Path', description: 'Raw video without audio' },
+      { id: 'audio', type: 'audio', label: 'Audio Path', description: 'Extracted audio track' },
+      { id: 'text', type: 'text', label: 'Subtitles', description: 'YouTube transcript/subtitles' },
+      { id: 'metadata', type: 'any', label: 'Metadata', description: 'Video metadata (FPS, Duration, Aspect Ratio)' },
     ],
-    isConfigurable: true,
-  },
-
-  'youtube-trigger': {
-    type: 'youtube-trigger',
-    category: 'input',
-    label: 'YouTube Trigger',
-    description: 'Auto-triggers workflow when a new video is published on a channel',
-    icon: 'Youtube',
-    defaultConfig: {
-      channelHandle: '',
-      channelUrl: '',
-      callbackUrl: '',
-      autoProcess: true,
-    },
-    inputs: [],
-    outputs: [
-      { id: 'video', type: 'video', label: 'New Video', description: 'Latest video from channel' },
-      { id: 'metadata', type: 'text', label: 'Metadata', description: 'Video title, description, etc.' },
-    ],
-    isConfigurable: true,
-  },
-
-  'google-drive-trigger': {
-    type: 'google-drive-trigger',
-    category: 'input',
-    label: 'Google Drive Trigger',
-    description: 'Auto-triggers workflow when new files are added to connected folder',
-    icon: 'Folder',
-    defaultConfig: {
-      folderId: '',
-      folderPath: '',
-      fileTypes: ['video', 'image', 'audio'],
-    },
-    inputs: [],
-    outputs: [
-      { id: 'file', type: 'any', label: 'New File', description: 'Uploaded file from Drive' },
-    ],
-    isConfigurable: true,
-  },
-
-  'aws-s3-trigger': {
-    type: 'aws-s3-trigger',
-    category: 'input',
-    label: 'AWS S3 Trigger',
-    description: 'Auto-triggers workflow on new uploads to S3 bucket',
-    icon: 'Cloud',
-    defaultConfig: {
-      bucketName: '',
-      region: 'us-east-1',
-      prefix: '',
-    },
-    inputs: [],
-    outputs: [
-      { id: 'file', type: 'any', label: 'S3 File', description: 'File from S3 bucket' },
+    configOptions: [
+      {
+        id: 'source',
+        label: 'Source',
+        type: 'select',
+        options: [
+          { value: 'upload', label: 'File Upload' },
+          { value: 'youtube', label: 'YouTube Link' }
+        ]
+      },
+      {
+        id: 'fileName',
+        label: 'Upload Video',
+        type: 'file-upload',
+        accept: 'video/*'
+      },
+      {
+        id: 'youtubeUrl',
+        label: 'YouTube URL',
+        type: 'string',
+        showIf: { field: 'source', value: 'youtube' }
+      },
+      {
+        id: 'separateAudio',
+        label: 'Separate Audio & Video',
+        type: 'boolean'
+      },
     ],
     isConfigurable: true,
   },
@@ -111,12 +84,27 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     icon: 'Image',
     defaultConfig: {
       source: 'upload',
-      fileUrl: undefined,
-      fileName: undefined,
+      fileName: '',
       dimensions: undefined,
     },
     inputs: [],
-    outputs: [{ id: 'image', type: 'image', label: 'Image', description: 'Imported image' }],
+    outputs: [{ id: 'image', type: 'image', label: 'Image path', description: 'Imported image path' }],
+    configOptions: [
+      {
+        id: 'source',
+        label: 'Source',
+        type: 'select',
+        options: [
+          { value: 'upload', label: 'File Upload' }
+        ]
+      },
+      {
+        id: 'fileName',
+        label: 'Upload Image',
+        type: 'file-upload',
+        accept: 'image/*'
+      }
+    ],
     isConfigurable: true,
   },
 
@@ -128,12 +116,27 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     icon: 'Music',
     defaultConfig: {
       source: 'upload',
-      fileUrl: undefined,
       fileName: undefined,
       duration: undefined,
     },
     inputs: [],
-    outputs: [{ id: 'audio', type: 'audio', label: 'Audio', description: 'Audio track' }],
+    outputs: [{ id: 'audio', type: 'audio', label: 'Audio path', description: 'Audio track path' }],
+    configOptions: [
+      {
+        id: 'source',
+        label: 'Source',
+        type: 'select',
+        options: [
+          { value: 'upload', label: 'File Upload' }
+        ]
+      },
+      {
+        id: 'fileName',
+        label: 'Upload Audio',
+        type: 'file-upload',
+        accept: 'audio/*'
+      }
+    ],
     isConfigurable: true,
   },
 
@@ -155,57 +158,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
   // ============ CREATION TILES ============
   // Generate new media from scratch
 
-  'ai-avatar': {
-    type: 'ai-avatar',
-    category: 'action',
-    label: 'AI Avatar',
-    description: 'Generate AI talking-head video with lip sync from script',
-    icon: 'User',
-    defaultConfig: {
-      avatar: 'default', // Avatar selection
-      script: '',
-      voice: 'alloy',
-      language: 'en',
-      style: 'natural',
-      background: 'transparent', // 'transparent' | 'solid' | 'image'
-      backgroundColor: '#000000',
-      backgroundImageUrl: '',
-    },
-    inputs: [
-      { id: 'script', type: 'text', label: 'Script', required: true, description: 'Text for avatar to speak' },
-      { id: 'audio', type: 'audio', label: 'Audio', required: false, description: 'Optional voiceover audio' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Avatar Video', description: 'AI-generated talking-head video' },
-    ],
-    isConfigurable: true,
-  },
 
-  'ai-broll': {
-    type: 'ai-broll',
-    category: 'action',
-    label: 'AI B-Roll',
-    description: 'AI-generated B-roll clips overlaid at appropriate timestamps',
-    icon: 'Film',
-    defaultConfig: {
-      coverageLevel: 'medium', // 'light' | 'medium' | 'heavy'
-      videoModel: 'default',
-      aspectRatio: '16:9',
-      generateAudio: false,
-      maxGenerations: 10,
-      stylePrompt: '',
-      contentPrompt: '',
-      transitionStyle: 'fade',
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Main Video', required: true, description: 'Video to overlay B-roll on' },
-      { id: 'text', type: 'text', label: 'Context', required: false, description: 'Additional context for B-roll' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video with B-Roll', description: 'Video with AI B-roll overlaid' },
-    ],
-    isConfigurable: true,
-  },
 
   'ai-augment': {
     type: 'ai-augment',
@@ -228,30 +181,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     isConfigurable: true,
   },
 
-  'ai-content-generation': {
-    type: 'ai-content-generation',
-    category: 'action',
-    label: 'AI Content Generation',
-    description: 'Complete AI-generated video from text - no footage needed',
-    icon: 'Sparkles',
-    defaultConfig: {
-      prompt: '',
-      topic: '',
-      style: 'documentary', // 'documentary' | 'tutorial' | 'promotional' | 'story'
-      duration: 60, // seconds
-      voice: 'alloy',
-      narrationStyle: 'professional',
-      includeMusic: true,
-      includeCaptions: true,
-    },
-    inputs: [
-      { id: 'text', type: 'text', label: 'Prompt/Topic', required: true, description: 'What to generate video about' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Generated Video', description: 'Complete AI-generated video' },
-    ],
-    isConfigurable: true,
-  },
+
 
   'ai-music': {
     type: 'ai-music',
@@ -298,7 +228,31 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       { id: 'text', type: 'text', label: 'Prompt', required: true, description: 'Image description' },
     ],
     outputs: [
-      { id: 'image', type: 'image', label: 'Generated Image', description: 'AI-generated image' },
+      { id: 'image', type: 'image', label: 'Image Path', description: 'AI-generated image path' },
+    ],
+    configOptions: [
+      {
+        id: 'aspectRatio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape - YouTube)' },
+          { value: '9:16', label: '9:16 (Portrait - TikTok/Reels)' },
+          { value: '1:1', label: '1:1 (Square - Instagram)' },
+          { value: '4:5', label: '4:5 (Standard Portrait)' }
+        ]
+      },
+      {
+        id: 'style',
+        label: 'Style',
+        type: 'select',
+        options: [
+          { value: 'realistic', label: 'Realistic' },
+          { value: 'anime', label: 'Anime' },
+          { value: '3d-render', label: '3D Render' },
+          { value: 'digital-art', label: 'Digital Art' }
+        ]
+      }
     ],
     isConfigurable: true,
   },
@@ -321,7 +275,48 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       { id: 'image', type: 'image', label: 'Start Image', required: false, description: 'Image to animate' },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Generated Video', description: 'AI-generated video clip' },
+      { id: 'video', type: 'video', label: 'Video Path', description: 'AI-generated video clip path' },
+    ],
+    configOptions: [
+      {
+        id: 'duration',
+        label: 'Duration (Seconds)',
+        type: 'select',
+        options: [
+          { value: '5', label: '5 Seconds' },
+          { value: '10', label: '10 Seconds' }
+        ]
+      },
+      {
+        id: 'aspectRatio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape - YouTube)' },
+          { value: '9:16', label: '9:16 (Portrait - TikTok/Reels)' },
+          { value: '1:1', label: '1:1 (Square - Instagram)' },
+          { value: '4:5', label: '4:5 (Standard Portrait)' }
+        ]
+      },
+      {
+        id: 'style',
+        label: 'Style',
+        type: 'select',
+        options: [
+          { value: 'cinematic', label: 'Cinematic' },
+          { value: 'anime', label: 'Anime' },
+          { value: '3d-render', label: '3D Render' }
+        ]
+      },
+      {
+        id: 'quality',
+        label: 'Quality',
+        type: 'select',
+        options: [
+          { value: 'quality', label: 'High Quality' },
+          { value: 'speed', label: 'Fast Generation (Speed)' }
+        ]
+      }
     ],
     isConfigurable: true,
   },
@@ -359,61 +354,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     isConfigurable: true,
   },
 
-  'cinematic-captions': {
-    type: 'cinematic-captions',
-    category: 'action',
-    label: 'Cinematic Captions',
-    description: 'Movie-style animated captions with professional styling',
-    icon: 'Captions',
-    defaultConfig: {
-      style: 'cinematic',
-      animation: 'fade-up',
-      font: 'Montserrat',
-      fontSize: 52,
-      color: '#FFFFFF',
-      outline: true,
-      outlineColor: '#000000',
-      outlineWidth: 2,
-      shadow: true,
-      shadowBlur: 10,
-      wordHighlight: true,
-      highlightColor: '#FFFF00',
-      position: 'bottom',
-      padding: 40,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to caption' },
-      { id: 'text', type: 'text', label: 'Transcript', required: false, description: 'Optional transcript' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video with Captions', description: 'Cinematic captioned video' },
-    ],
-    isConfigurable: true,
-  },
 
-  'motion-graphics': {
-    type: 'motion-graphics',
-    category: 'action',
-    label: 'Motion Graphics',
-    description: 'AI-generated motion graphics overlays or fullscreen slides',
-    icon: 'Zap',
-    defaultConfig: {
-      stylePrompt: '', // Required
-      fullscreen: false,
-      referenceLinks: [],
-      styleReferenceVideo: '',
-      animationType: 'overlay', // 'overlay' | 'fullscreen' | 'transition'
-      duration: 3,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Base video' },
-      { id: 'text', type: 'text', label: 'Style Prompt', required: true, description: 'Motion graphics style' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video with Graphics', description: 'Video with motion graphics' },
-    ],
-    isConfigurable: true,
-  },
 
   'rough-cut': {
     type: 'rough-cut',
@@ -922,6 +863,20 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     isConfigurable: true,
   },
 
+  'json-preview': {
+    type: 'json-preview',
+    category: 'output',
+    label: 'JSON Preview',
+    description: 'Display structured JSON data (metadata, etc.)',
+    icon: 'Code',
+    defaultConfig: {},
+    inputs: [
+      { id: 'json', type: 'any', label: 'Data', required: true },
+    ],
+    outputs: [],
+    isConfigurable: true,
+  },
+
   // ============ ANIMATION TILES ============
   // Manim and Remotion for animations
 
@@ -1054,11 +1009,16 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       preserveAudio: true,
       pitchCorrection: true,
     },
+    configOptions: [
+      { id: 'speed', type: 'number', label: 'Speed Multiplier' },
+      { id: 'preserveAudio', type: 'boolean', label: 'Preserve Audio' },
+      { id: 'pitchCorrection', type: 'boolean', label: 'Apply Pitch Correction' },
+    ],
     inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
+      { id: 'video', type: 'video', label: 'Video path', required: true },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Speed-adjusted video' },
+      { id: 'video', type: 'video', label: 'Video path', description: 'Speed-adjusted video' },
     ],
     isConfigurable: true,
   },
@@ -1076,10 +1036,10 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       reverseAudio: true,
     },
     inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
+      { id: 'video', type: 'video', label: 'Video path', required: true },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Reversed video' },
+      { id: 'video', type: 'video', label: 'Video path', description: 'Reversed video' },
     ],
     isConfigurable: true,
   },
@@ -1115,11 +1075,11 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       splitTime: 5, // Split at 5 seconds
     },
     inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
+      { id: 'video', type: 'video', label: 'Video path', required: true },
     ],
     outputs: [
-      { id: 'video1', type: 'video', label: 'Part 1', description: 'First segment' },
-      { id: 'video2', type: 'video', label: 'Part 2', description: 'Second segment' },
+      { id: 'video1', type: 'video', label: 'Part 1 path', description: 'First segment' },
+      { id: 'video2', type: 'video', label: 'Part 2 path', description: 'Second segment' },
     ],
     isConfigurable: true,
   },
@@ -1153,8 +1113,7 @@ export function getTileDefinition(type: string): TileDefinition | undefined {
 
 export function getCreationTiles(): TileDefinition[] {
   const creationTypes = [
-    'ai-avatar', 'ai-broll', 'ai-augment', 'ai-content-generation',
-    'ai-music', 'ai-image', 'ai-video'
+    'ai-augment', 'ai-music', 'ai-image', 'ai-video'
   ];
   return creationTypes.map(type => TILE_REGISTRY[type]).filter(Boolean);
 }
@@ -1162,8 +1121,8 @@ export function getCreationTiles(): TileDefinition[] {
 export function getTilesForPlatform(platform: 'youtube' | 'instagram' | 'tiktok' | 'twitter'): TileDefinition[] {
   const platformTiles: Record<string, string[]> = {
     youtube: ['video-input', 'captions', 'intro', 'outro', 'thumbnail', 'destination'],
-    instagram: ['video-input', 'reframe', 'cinematic-captions', 'clips', 'destination'],
-    tiktok: ['video-input', 'reframe', 'cinematic-captions', 'motion-graphics', 'destination'],
+    instagram: ['video-input', 'reframe', 'clips', 'destination'],
+    tiktok: ['video-input', 'reframe', 'destination'],
     twitter: ['video-input', 'clips', 'captions', 'destination'],
   };
 

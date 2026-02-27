@@ -1,12 +1,12 @@
 'use client';
 
 import { memo, useState, useEffect } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 import type { TileData, TileNode as TileNodeType } from '@/lib/tile-types';
 import { TILE_REGISTRY } from '@/lib/tile-registry';
-import { useCanvasStore } from '@/lib/canvas-store';
+import { useCanvasStore, type ExecutionStatus } from '@/lib/canvas-store';
 import {
   Video,
   Image as ImageIcon,
@@ -25,6 +25,7 @@ import {
   Play,
   Loader2,
   CheckCircle2,
+  CheckCircle,
   AlertCircle,
   VolumeX,
   Captions,
@@ -48,6 +49,9 @@ import {
   Code,
   Gauge,
   Rewind,
+  Circle,
+  RefreshCw,
+  XCircle,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -105,7 +109,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 
 // Tile node style variants
 const tileVariants = cva(
-  'relative min-w-[200px] max-w-[280px] rounded-xl border border-border/50 bg-background/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md shadow-xl transition-all duration-300 cursor-pointer group hover:shadow-2xl',
+  'relative w-full h-full min-w-[200px] rounded-xl border border-border/50 bg-background/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md shadow-xl transition-all duration-300 cursor-pointer group hover:shadow-2xl',
   {
     variants: {
       category: {
@@ -141,12 +145,38 @@ const TYPE_COLORS: Record<string, { bg: string; border: string; label: string }>
   any: { bg: 'bg-gray-500', border: 'border-gray-400', label: 'Any' },
 };
 
+const statusColors: Record<ExecutionStatus, { border: string; bg: string; text: string; icon: React.ReactNode }> = {
+  idle: { border: 'border-slate-200 dark:border-slate-800', bg: 'bg-white dark:bg-slate-900', text: 'text-slate-500', icon: <Circle className="h-4 w-4" /> },
+  running: { border: 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]', bg: 'bg-blue-50 dark:bg-blue-900/20', text: 'text-blue-500', icon: <RefreshCw className="h-4 w-4 animate-spin" /> },
+  completed: { border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-500', icon: <CheckCircle className="h-4 w-4" /> },
+  cached: { border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-500', icon: <CheckCircle className="h-4 w-4" /> },
+  error: { border: 'border-red-500', bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-500', icon: <XCircle className="h-4 w-4" /> },
+};
+
 type TileNodeProps = NodeProps<TileNodeType>;
 
 // Preview renderer component
 function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: any; nodeId: string }) {
   const { executionResults } = useCanvasStore();
   const result = executionResults[nodeId] as any;
+
+  // Handler for downloading JSON metadata
+  const handleDownloadJson = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const blob = new Blob([outputText || ''], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `openmosaic-data-${nodeId.substring(0, 6)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download JSON:", err);
+    }
+  };
 
   let outputUrl = '';
   let outputText = '';
@@ -158,8 +188,31 @@ function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: a
     else if (o.image?.url || o.image?.path) outputUrl = o.image.url || o.image.path;
     else if (o.audio?.url || o.audio?.path) outputUrl = o.audio.url || o.audio.path;
 
-    if (o.text?.data) outputText = o.text.data;
+    if (o.text !== undefined) {
+      if (typeof o.text === 'object' && o.text !== null && 'data' in o.text) {
+        outputText = typeof o.text.data === 'string' ? o.text.data : JSON.stringify(o.text.data, null, 2);
+      } else if (typeof o.text === 'string') {
+        outputText = o.text;
+      } else {
+        outputText = JSON.stringify(o.text, null, 2);
+      }
+    }
+
+    if (o.json !== undefined) {
+      if (typeof o.json === 'object' && o.json !== null && 'data' in o.json) {
+        outputText = typeof o.json.data === 'string' ? o.json.data : JSON.stringify(o.json.data, null, 2);
+      } else if (typeof o.json === 'string') {
+        try {
+          outputText = JSON.stringify(JSON.parse(o.json), null, 2);
+        } catch (e) {
+          outputText = o.json;
+        }
+      } else {
+        outputText = JSON.stringify(o.json, null, 2);
+      }
+    }
   }
+
 
   // 2. Fallback to statically configured data if no execution result exists yet
   if (!outputUrl) {
@@ -172,7 +225,7 @@ function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: a
   // Video Preview
   if (tileType === 'video-preview' || (tileType === 'video-output' && outputUrl)) {
     return (
-      <div className="mt-2 rounded overflow-hidden bg-black aspect-video">
+      <div className="mt-2 rounded overflow-hidden bg-black flex-1 min-h-0">
         {outputUrl ? (
           <video
             src={outputUrl}
@@ -192,12 +245,12 @@ function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: a
   // Image Preview
   if (tileType === 'image-preview' || (tileType === 'thumbnail' && outputUrl)) {
     return (
-      <div className="mt-2 rounded overflow-hidden bg-muted">
+      <div className="mt-2 rounded overflow-hidden bg-muted flex-1 min-h-0">
         {outputUrl ? (
           <img
             src={outputUrl}
             alt="Preview"
-            className="w-full object-contain max-h-40"
+            className="w-full h-full object-contain"
           />
         ) : (
           <div className="flex items-center justify-center h-24 text-muted-foreground">
@@ -226,10 +279,32 @@ function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: a
   // Text Preview
   if (tileType === 'text-preview' || tileType === 'transcribe') {
     return (
-      <div className="mt-2 rounded bg-muted p-2 max-h-32 overflow-y-auto">
-        <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap font-mono">
+      <div className="mt-2 flex-1 min-h-0 rounded bg-muted p-2 overflow-auto">
+        <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap font-mono h-full">
           {outputText || data.config?.content || 'No text output'}
         </pre>
+      </div>
+    );
+  }
+
+  // JSON Preview
+  if (tileType === 'json-preview') {
+    return (
+      <div className="mt-2 flex-1 min-h-0 rounded bg-black/90 p-3 overflow-auto max-w-full w-full h-full relative group/json">
+        <code className="text-[11px] text-green-400 whitespace-pre font-mono block min-w-max h-full">
+          {outputText || data.config?.content || 'No JSON output'}
+        </code>
+        {outputText && (
+          <Button
+            size="icon"
+            variant="secondary"
+            className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover/json:opacity-100 transition-opacity bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-none"
+            onClick={handleDownloadJson}
+            title="Download JSON"
+          >
+            <Download className="h-3 w-3" />
+          </Button>
+        )}
       </div>
     );
   }
@@ -241,6 +316,10 @@ function TileNodeComponent(props: TileNodeProps) {
   const { selected, id } = props;
   const data: any = props.data;
   const [showInfo, setShowInfo] = useState(false);
+  const { nodeExecutionProgress } = useCanvasStore();
+  const progress = nodeExecutionProgress?.[id];
+  const isCached = progress?.status === 'cached';
+  const isCompleted = progress?.status === 'completed';
 
   // Get the tile definition from registry
   const tileType = data.tileType || data.label.toLowerCase().replace(/\s+/g, '-');
@@ -253,6 +332,8 @@ function TileNodeComponent(props: TileNodeProps) {
       case 'processing':
         return <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />;
       case 'completed':
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case 'cached': // Added cached status indicator
         return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case 'error':
         return <AlertCircle className="h-4 w-4 text-red-500" />;
@@ -340,11 +421,18 @@ function TileNodeComponent(props: TileNodeProps) {
 
   return (
     <div className={cn(tileVariants({ category: data.category, status: data.status, selected }))}>
+      <NodeResizer
+        minWidth={250}
+        minHeight={150}
+        isVisible={selected}
+        lineClassName="!border-transparent"
+        handleClassName="h-3 w-3 bg-primary rounded-sm border-0 pointer-events-auto"
+      />
       {/* Input Handles */}
       {definition?.inputs?.map((input, index) => renderInputHandle(input, index))}
 
       {/* Node Content */}
-      <div className="p-3">
+      <div className="p-3 w-full h-full flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-2 mb-2">
           <div

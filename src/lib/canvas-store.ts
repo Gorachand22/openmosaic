@@ -1,16 +1,28 @@
 // OpenMosaic Canvas Store - State management with Zustand
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { Node, Edge, Connection } from '@xyflow/react';
+import { type Node, type Edge, type Connection, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import type { TileData, TileStatus, Workflow } from './tile-types';
+// @ts-ignore
+import objectHash from 'object-hash';
 import { TILE_REGISTRY } from './tile-registry';
 import { useWorkspaceStore } from './workspace-store';
+import { getEdgeColor } from './utils';
+
+export type EdgeStyle = 'bezier' | 'step' | 'straight';
 
 interface ExecutionProgress {
   nodeId: string;
-  status: 'pending' | 'running' | 'completed' | 'error';
+  status: 'pending' | 'running' | 'completed' | 'error' | 'cached';
   progress: number;
   message?: string;
+}
+
+export type ExecutionStatus = 'idle' | 'running' | 'completed' | 'error' | 'cached';
+
+interface ExecutionCache {
+  hash: string;
+  timestamp: number;
 }
 
 interface CanvasState {
@@ -28,6 +40,7 @@ interface CanvasState {
   isExecuting: boolean;
   executionProgress: Record<string, ExecutionProgress>;
   executionResults: Record<string, unknown>;
+  executionHashes: Record<string, ExecutionCache>;
 
   // Undo/Redo
   history: { nodes: Node<TileData>[]; edges: Edge[] }[];
@@ -39,6 +52,8 @@ interface CanvasState {
   showMinimap: boolean;
 
   // Actions
+  onNodesChange: (changes: import('@xyflow/react').NodeChange[]) => void;
+  onEdgesChange: (changes: import('@xyflow/react').EdgeChange[]) => void;
   setNodes: (nodes: Node<TileData>[]) => void;
   setEdges: (edges: Edge[]) => void;
   addNode: (type: string, position: { x: number; y: number }) => string;
@@ -116,6 +131,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   isExecuting: false,
   executionProgress: {},
   executionResults: {},
+  executionHashes: {},
 
   // Settings initial state
   edgeStyle: 'bezier',
@@ -128,15 +144,36 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setEdgeStyle: (style) => set({ edgeStyle: style }),
   setSnapToGrid: (snap) => set({ snapToGrid: snap }),
   setShowMinimap: (show) => set({ showMinimap: show }),
-
   // Node actions
+  onNodesChange: (changes) => {
+    const state = get();
+    const newNodes = applyNodeChanges(changes, state.nodes) as Node<TileData>[];
+    set({ nodes: newNodes, isDirty: true });
+    syncToWorkspace(get());
+  },
+
+  onEdgesChange: (changes) => {
+    const state = get();
+    const newEdges = applyEdgeChanges(changes, state.edges);
+    set({ edges: newEdges, isDirty: true });
+    syncToWorkspace(get());
+  },
+
   setNodes: (nodes) => {
     set({ nodes, isDirty: true });
     syncToWorkspace(get());
   },
 
   setEdges: (edges) => {
-    set({ edges, isDirty: true });
+    // Repaint all edges based on their current connection Types
+    const recoloredEdges = edges.map(edge => {
+      const edgeColor = getEdgeColor(edge.source, edge.sourceHandle);
+      return {
+        ...edge,
+        style: { ...edge.style, stroke: edgeColor }
+      };
+    });
+    set({ edges: recoloredEdges, isDirty: true });
     syncToWorkspace(get());
   },
 
@@ -157,13 +194,24 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // If connectToPrevious is true, connect to the last added node
     if (connectToPrevious && state.nodes.length > 0) {
       const lastNode = state.nodes[state.nodes.length - 1];
+      let edgeColor = '#6b7280'; // Default gray 'any'
+      const tileType = lastNode.data.tileType || lastNode.data.label;
+      const tileDef = Object.values(TILE_REGISTRY).find(
+        t => t.type === tileType || t.label === tileType
+      );
+      if (tileDef && tileDef.outputs.length > 0) {
+        edgeColor = getEdgeColor(lastNode.id, tileDef.outputs[0].id);
+      }
+
       const newEdge: Edge = {
         id: `edge-${lastNode.id}-${newNode.id}`,
         source: lastNode.id,
         target: newNode.id,
+        sourceHandle: tileDef?.outputs[0]?.id,
+        targetHandle: TILE_REGISTRY[newNode.data.tileType as string]?.inputs[0]?.id, // Attempt to connect to first input
         type: state.edgeStyle,
         animated: true,
-        style: { strokeWidth: 2, stroke: '#6366f1' },
+        style: { strokeWidth: 2, stroke: edgeColor },
       };
       set((state) => ({
         edges: [...state.edges, newEdge],
@@ -178,7 +226,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   connectNodesById: (sourceId, targetId) => {
     set((state) => {
       const newEdge: Edge = {
-        id: `edge-${sourceId}-${targetId}`,
+        id: `edge - ${sourceId} -${targetId} `,
         source: sourceId,
         target: targetId,
         type: state.edgeStyle,
@@ -202,20 +250,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       isDirty: true,
       executionProgress: {},
       executionResults: {},
+      executionHashes: {},
     });
 
     syncToWorkspace(get());
   },
 
   updateNode: (nodeId, data) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === nodeId
-          ? ({ ...node, data: { ...node.data, ...data, config: { ...node.data.config, ...(data.config || {}) } } } as any)
-          : node
-      ),
-      isDirty: true,
-    }));
+    set((state) => {
+      // Invalidate the cache for the specific node that was updated
+      const newHashes = { ...state.executionHashes };
+      delete newHashes[nodeId];
+
+      return {
+        nodes: state.nodes.map((node) =>
+          node.id === nodeId
+            ? ({ ...node, data: { ...node.data, ...data, config: { ...node.data.config, ...(data.config || {}) } } } as any)
+            : node
+        ),
+        executionHashes: newHashes,
+        isDirty: true,
+      };
+    });
     syncToWorkspace(get());
   },
 
@@ -223,8 +279,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set((state) => {
       const newResults = { ...state.executionResults };
       const newProgress = { ...state.executionProgress };
+      const newHashes = { ...state.executionHashes };
       delete newResults[nodeId];
       delete newProgress[nodeId];
+      delete newHashes[nodeId];
 
       return {
         nodes: state.nodes.filter((node) => node.id !== nodeId),
@@ -232,6 +290,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
         executionResults: newResults,
         executionProgress: newProgress,
+        executionHashes: newHashes,
         isDirty: true,
       };
     });
@@ -246,15 +305,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   connectNodes: (connection) => {
     if (!connection.source || !connection.target) return;
 
+    const edgeColor = getEdgeColor(connection.source, connection.sourceHandle);
+
     const newEdge: Edge = {
-      id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
+      id: `edge - ${connection.source} -${connection.target} -${Date.now()} `,
       source: connection.source,
       target: connection.target,
       sourceHandle: connection.sourceHandle || undefined,
       targetHandle: connection.targetHandle || undefined,
       type: 'bezier',
       animated: true,
-      style: { strokeWidth: 2, stroke: '#6366f1' },
+      style: { strokeWidth: 2, stroke: edgeColor },
     };
 
     set((state) => ({
@@ -269,17 +330,20 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const edgeToDisconnect = state.edges.find((e) => e.id === edgeId);
       const newResults = { ...state.executionResults };
       const newProgress = { ...state.executionProgress };
+      const newHashes = { ...state.executionHashes };
 
       if (edgeToDisconnect) {
         // Invalidate the target node since its input changed
         delete newResults[edgeToDisconnect.target];
         delete newProgress[edgeToDisconnect.target];
+        delete newHashes[edgeToDisconnect.target];
       }
 
       return {
         edges: state.edges.filter((edge) => edge.id !== edgeId),
         executionResults: newResults,
         executionProgress: newProgress,
+        executionHashes: newHashes,
         isDirty: true,
       };
     });
@@ -298,6 +362,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       historyIndex: -1,
       executionProgress: {},
       executionResults: {},
+      executionHashes: {},
     });
   },
 
@@ -336,6 +401,55 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const node = get().nodes.find((n) => n.id === nodeId);
     if (!node) return;
 
+    const state = get();
+    // Gather inputs from connected nodes
+    const incomingEdges = state.edges.filter(e => e.target === nodeId);
+    const inputs: Record<string, any> = {};
+
+    for (const edge of incomingEdges) {
+      const sourceResult = state.executionResults[edge.source] as any;
+      if (sourceResult?.outputs) {
+        if (edge.sourceHandle) {
+          const outData = sourceResult.outputs[edge.sourceHandle];
+          if (outData) {
+            inputs[edge.targetHandle || edge.sourceHandle] = outData.data || outData.url || outData.path;
+          } else {
+            inputs[edge.targetHandle || edge.sourceHandle] = null;
+          }
+        } else {
+          const firstKey = Object.keys(sourceResult.outputs)[0];
+          if (firstKey) {
+            const outData = sourceResult.outputs[firstKey];
+            inputs[edge.targetHandle || firstKey] = outData.data || outData.url || outData.path;
+          }
+        }
+      }
+    }
+
+    // COMFY UI CACHING LOGIC: Determine Execution Hash based on node configuration and incoming dependencies
+    const nodeHashPayload = {
+      tileType: node.data.tileType,
+      config: node.data.config,
+      inputs: inputs
+    };
+
+    // Hash the configuration signature
+    const currentHash = objectHash(nodeHashPayload);
+
+    // If the node has previously run successfully AND the hash is identical, skip execution entirely
+    const existingCache = state.executionHashes[nodeId];
+    if (existingCache && existingCache.hash === currentHash && state.executionResults[nodeId] && !(state.executionResults[nodeId] as any).error) {
+      console.log(`[Cache Hit] Node ${nodeId} execution skipped, dependencies unchanged.`);
+      set((state) => ({
+        executionProgress: {
+          ...state.executionProgress,
+          [nodeId]: { nodeId, status: 'cached', progress: 100 },
+        },
+      }));
+      get().setNodeStatus(nodeId, 'completed');
+      return;
+    }
+
     set((state) => ({
       isExecuting: true,
       executionProgress: {
@@ -345,43 +459,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }));
 
     // Update node status to processing
+    // Update node status to processing
     get().setNodeStatus(nodeId, 'processing');
 
     try {
-      // Gather inputs from connected nodes
-      const state = get();
-      const incomingEdges = state.edges.filter(e => e.target === nodeId);
-      const inputs: Record<string, any> = {};
 
-      for (const edge of incomingEdges) {
-        const sourceResult = state.executionResults[edge.source] as any;
-        if (sourceResult?.outputs) {
-          // If we connected from a specific handle, try to get that specific output
-          if (edge.sourceHandle && sourceResult.outputs[edge.sourceHandle]) {
-            inputs[edge.sourceHandle] = sourceResult.outputs[edge.sourceHandle].data || sourceResult.outputs[edge.sourceHandle].url || sourceResult.outputs[edge.sourceHandle].path;
-          } else {
-            // Otherwise just grab the first available output or merge them
-            const firstKey = Object.keys(sourceResult.outputs)[0];
-            if (firstKey) {
-              // usually the output is .data for text, or .url/.path for media
-              inputs[firstKey] = sourceResult.outputs[firstKey].data || sourceResult.outputs[firstKey].url || sourceResult.outputs[firstKey].path;
-            }
-          }
-        }
-      }
-
-      // Special case: for text inputs, the output is just the config.content 
-      // but in the actual tile-executor it returns it in outputs.text.data.
-
-      // Update progress to show we started
-      set((state) => ({
-        executionProgress: {
-          ...state.executionProgress,
-          [nodeId]: { nodeId, status: 'running', progress: 50 },
-        },
-      }));
-
-      // Call the real backend execution API
       const response = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -393,13 +475,74 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         })
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Execution failed');
+      if (!response.ok) {
+        throw new Error(`Execution failed: ${response.statusText} `);
       }
 
-      // Mark as completed and save results
+      if (!response.body) {
+        throw new Error('ReadableStream not supported by browser.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let finalResult: any = null;
+      let buffer = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+
+          const blocks = buffer.split('\n\n');
+          // keep the last incomplete chunk in the buffer
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            const lines = block.split('\n');
+            const eventLine = lines.find(l => l.startsWith('event: '));
+            const dataLine = lines.find(l => l.startsWith('data: '));
+
+            if (eventLine && dataLine) {
+              const eventType = eventLine.replace('event: ', '').trim();
+              try {
+                const eventData = JSON.parse(dataLine.replace('data: ', '').trim());
+
+                if (eventType === 'progress') {
+                  set((state) => ({
+                    executionProgress: {
+                      ...state.executionProgress,
+                      [nodeId]: { nodeId, status: 'running', progress: eventData.progress, message: eventData.message },
+                    },
+                  }));
+                } else if (eventType === 'executing') {
+                  set((state) => ({
+                    executionProgress: {
+                      ...state.executionProgress,
+                      [nodeId]: { nodeId, status: 'running', progress: eventData.progress || 0 },
+                    },
+                  }));
+                } else if (eventType === 'executed') {
+                  finalResult = eventData;
+                } else if (eventType === 'error') {
+                  throw new Error(eventData.error || 'Execution stream error');
+                }
+              } catch (e) {
+                console.error('Error parsing SSE data line', e);
+              }
+            }
+          }
+        }
+      }
+
+      const result = finalResult;
+
+      if (!result || !result.success) {
+        throw new Error(result?.error || 'Execution failed without returning success flag');
+      }
+
+      // Mark as completed and save results and cache hash 
       set((state) => ({
         executionProgress: {
           ...state.executionProgress,
@@ -408,12 +551,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         executionResults: {
           ...state.executionResults,
           [nodeId]: result
+        },
+        executionHashes: {
+          ...state.executionHashes,
+          [nodeId]: { nodeId, hash: currentHash, timestamp: Date.now() }
         }
       }));
 
       get().setNodeStatus(nodeId, 'completed');
     } catch (error) {
-      console.error(`Execution error for node ${nodeId}:`, error);
+      console.error(`Execution error for node ${nodeId}: `, error);
       set((state) => ({
         executionProgress: {
           ...state.executionProgress,
@@ -459,6 +606,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     // Execute in order
     for (const nodeId of executionOrder) {
+      // Check if any dependencies failed
+      const nodeDependencies = edges
+        .filter((e) => e.target === nodeId)
+        .map((e) => e.source);
+
+      const hasFailedDependency = nodeDependencies.some(
+        (depId) => get().executionProgress[depId]?.status === 'error'
+      );
+
+      if (hasFailedDependency) {
+        set((state) => ({
+          executionProgress: {
+            ...state.executionProgress,
+            [nodeId]: { nodeId, status: 'error', progress: 0, message: 'Upstream dependency failed' },
+          },
+        }));
+        get().setNodeStatus(nodeId, 'error');
+        continue;
+      }
+
       await get().executeNode(nodeId);
     }
 

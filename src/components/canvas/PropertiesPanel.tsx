@@ -69,6 +69,113 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
 
   // Render config field based on type
   const renderConfigField = (key: string, value: unknown) => {
+    // 1. Check if the Tile definition has explicitly defined UI for this config key
+    const explicitConfig = definition?.configOptions?.find((opt) => opt.id === key);
+
+    if (explicitConfig) {
+      if (explicitConfig.type === 'select' && explicitConfig.options) {
+        return (
+          <div key={key} className="space-y-2">
+            <Label className="text-sm">{explicitConfig.label}</Label>
+            <Select
+              value={String(value)}
+              onValueChange={(v) => handleConfigChange(key, v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {explicitConfig.options.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      }
+
+      if (key === 'fileName' && (config as any).source === 'youtube') return null;
+      if (key === 'youtubeUrl' && (config as any).source === 'upload') return null;
+
+      if (explicitConfig.type === 'text') {
+        return (
+          <div key={key} className="space-y-2">
+            <Label className="text-sm">{explicitConfig.label}</Label>
+            <Input
+              value={String(value || '')}
+              onChange={(e) => handleConfigChange(key, e.target.value)}
+              placeholder={`Enter ${explicitConfig.label.toLowerCase()}...`}
+            />
+          </div>
+        );
+      }
+
+      if (explicitConfig.type === 'file-upload') {
+        const hasFile = typeof value === 'string' && value.length > 0;
+        return (
+          <div key={key} className="space-y-2">
+            <Label className="text-sm">{explicitConfig.label}</Label>
+
+            {hasFile && (
+              <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+                <span className="text-sm font-medium truncate flex-1" title={value as string}>
+                  {value}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => handleConfigChange(key, '')}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            <div className="flex gap-2 items-center">
+              <Input
+                type="file"
+                className="cursor-pointer text-sm file:text-sm"
+                accept={(explicitConfig as any).accept || '*/*'}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+
+                  const formData = new FormData();
+                  formData.append('file', file);
+
+                  try {
+                    const res = await fetch('/api/upload', {
+                      method: 'POST',
+                      body: formData
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      const uploadedFilename = data.file?.filename || data.filename;
+                      handleConfigChange(key, uploadedFilename);
+                    } else {
+                      alert('Upload failed: ' + (data.error || 'Unknown error'));
+                    }
+                  } catch (err) {
+                    console.error('Upload error', err);
+                    alert('Upload failed. See console.');
+                  }
+                }}
+              />
+            </div>
+            {hasFile && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Selecting a new file will replace the current one.
+              </p>
+            )}
+          </div>
+        );
+      }
+    }
+
+    // 2. Fallback to generic inference based on value type
     const fieldType = typeof value;
 
     // Boolean field
@@ -320,9 +427,12 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           <div className="space-y-4">
-            {Object.entries(config).map(([key, value]) =>
-              value !== undefined && value !== null ? renderConfigField(key, value) : null
-            )}
+            {definition?.configOptions?.map((opt) => renderConfigField(opt.id, config[opt.id] ?? ''))}
+            {Object.entries(config)
+              .filter(([key]) => !definition?.configOptions?.find((opt) => opt.id === key))
+              .map(([key, value]) =>
+                value !== undefined && value !== null ? renderConfigField(key, value) : null
+              )}
           </div>
         </div>
       </ScrollArea>

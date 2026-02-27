@@ -10,6 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import ZAI from 'z-ai-web-dev-sdk';
+import { addGrokTask, waitForGrokTask } from './grok-store';
 
 const execAsync = promisify(exec);
 
@@ -20,6 +21,18 @@ export const FOLDERS = {
   WORKFLOWS: path.join(process.cwd(), 'workflows'),
   TEMP: path.join(process.cwd(), 'temp'),
 } as const;
+
+// Helper to convert /api/files/ URLs to absolute local file paths
+export function resolveLocalPath(inputPath: string): string {
+  if (!inputPath) return inputPath;
+  if (inputPath.startsWith('/api/files/input/')) {
+    return path.join(FOLDERS.INPUT, path.basename(inputPath));
+  }
+  if (inputPath.startsWith('/api/files/output/')) {
+    return path.join(FOLDERS.OUTPUT, path.basename(inputPath));
+  }
+  return inputPath;
+}
 
 export async function checkSystemDependencies() {
   const ffmpeg = await checkFfmpeg();
@@ -119,52 +132,81 @@ export async function checkWhisper(): Promise<{ installed: boolean; version?: st
 
 // Video Input - Upload or URL
 export async function executeVideoInput(
-  config: { source: string; fileUrl?: string; fileName?: string },
+  config: { source: string; fileUrl?: string; fileName?: string; youtubeUrl?: string; separateAudio?: boolean },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
+  const ffmpegCheck = await checkFfmpeg();
+  if (!ffmpegCheck.installed) {
+    return { success: false, error: ffmpegCheck.error };
+  }
+
   try {
-    onProgress?.(0, 'Loading video...');
-
-    if (config.source === 'url' && config.fileUrl) {
-      // Check if YouTube URL
-      const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//;
-      if (youtubeRegex.test(config.fileUrl)) {
-        return await downloadYouTubeVideo(config.fileUrl, config.fileName, onProgress);
-      }
-
-      // Direct video URL - download
-      onProgress?.(20, 'Downloading from URL...');
-      const filename = config.fileName || `video_${uuidv4()}.mp4`;
-      const outputPath = path.join(FOLDERS.INPUT, filename);
-
-      const response = await fetch(config.fileUrl);
-      const buffer = await response.arrayBuffer();
-      await fs.writeFile(outputPath, Buffer.from(buffer));
-
-      onProgress?.(100, 'Video downloaded!');
-      return {
-        success: true,
-        outputs: {
-          video: { type: 'video', path: outputPath, url: `/api/files/input/${filename}` }
-        }
-      };
+    if (config.source === 'youtube' && config.youtubeUrl) {
+      return await downloadYouTubeVideo(config.youtubeUrl, config, onProgress);
     }
 
-    // Upload mode - file should already be in input folder
-    if (config.fileName) {
+    if (config.source === 'upload' && config.fileName) {
+      onProgress?.(0, 'Processing uploaded video...');
       const filePath = path.join(FOLDERS.INPUT, config.fileName);
+
       try {
         await fs.stat(filePath);
-        onProgress?.(100, 'Video loaded!');
-        return {
-          success: true,
-          outputs: {
-            video: { type: 'video', path: filePath, url: `/api/files/input/${config.fileName}` }
-          }
-        };
       } catch {
         return { success: false, error: `File not found: ${config.fileName}` };
       }
+
+      const separateAudio = config.separateAudio ?? true;
+      const baseName = path.parse(config.fileName).name;
+
+      onProgress?.(30, separateAudio ? 'Extracting video and audio streams...' : 'Processing video stream...');
+
+      let videoOutputPath = filePath;
+      let videoOutputUrl = `/api/files/input/${config.fileName}`;
+      let audioOutputPath = '';
+      let audioOutputUrl = '';
+      let hasAudio = false;
+
+      if (separateAudio) {
+        const videoOutputFilename = `${baseName}_only_video.mp4`;
+        const audioOutputFilename = `${baseName}_only_audio.m4a`;
+        videoOutputPath = path.join(FOLDERS.OUTPUT, videoOutputFilename);
+        audioOutputPath = path.join(FOLDERS.OUTPUT, audioOutputFilename);
+        videoOutputUrl = `/api/files/output/${videoOutputFilename}`;
+        audioOutputUrl = `/api/files/output/${audioOutputFilename}`;
+
+        // Extract video (no audio)
+        const videoCmd = `ffmpeg -i "${filePath}" -c:v copy -an "${videoOutputPath}" -y`;
+        await execAsync(videoCmd);
+
+        // Extract audio (no video)
+        hasAudio = true;
+        try {
+          const audioCmd = `ffmpeg -i "${filePath}" -vn -c:a aac "${audioOutputPath}" -y`;
+          await execAsync(audioCmd);
+        } catch (e) {
+          hasAudio = false; // Video might not have audio
+        }
+      }
+
+      onProgress?.(70, 'Extracting metadata...');
+      const metadata = await extractMetadata(filePath);
+
+      onProgress?.(100, 'Video processing complete!');
+
+      const outputs: any = {
+        video: { type: 'video', path: videoOutputPath, url: videoOutputUrl },
+        text: { type: 'text', path: '', data: [] },
+        metadata: { type: 'any', data: metadata }
+      };
+
+      if (hasAudio) {
+        outputs.audio = { type: 'audio', path: audioOutputPath, url: audioOutputUrl };
+      }
+
+      return {
+        success: true,
+        outputs
+      };
     }
 
     return { success: false, error: 'No video source provided' };
@@ -173,10 +215,35 @@ export async function executeVideoInput(
   }
 }
 
+async function extractMetadata(filePath: string): Promise<Record<string, any>> {
+  try {
+    const { stdout } = await execAsync(`ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate,width,height,duration -of json "${filePath}"`);
+    const info = JSON.parse(stdout);
+    const stream = info.streams?.[0];
+    if (!stream) return {};
+
+    let fps = 0;
+    if (stream.r_frame_rate) {
+      const parts = stream.r_frame_rate.split('/');
+      fps = parts.length === 2 ? Math.round(parseInt(parts[0]) / parseInt(parts[1])) : parseInt(stream.r_frame_rate);
+    }
+
+    return {
+      fps,
+      duration: parseFloat(stream.duration || '0'),
+      width: stream.width,
+      height: stream.height,
+      aspectRatio: stream.width && stream.height ? `${stream.width}:${stream.height}` : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
 // YouTube Trigger - Download YouTube video
 export async function downloadYouTubeVideo(
   url: string,
-  filename?: string,
+  config?: any,
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   const ytDlpCheck = await checkYtDlp();
@@ -184,38 +251,107 @@ export async function downloadYouTubeVideo(
     return { success: false, error: ytDlpCheck.error };
   }
 
-  const outputFilename = filename || `youtube_${uuidv4()}.mp4`;
-  const outputPath = path.join(FOLDERS.INPUT, outputFilename);
-
   try {
     onProgress?.(0, 'Starting YouTube download...');
 
-    // Get video info first
     const { stdout: infoJson } = await execAsync(`yt-dlp --dump-json "${url}"`);
     const info = JSON.parse(infoJson);
 
-    onProgress?.(20, `Downloading: ${info.title}...`);
+    const safeTitle = info.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50) || `yt_video_${uuidv4()}`;
+    const separateAudio = config?.separateAudio ?? true;
 
-    // Download with yt-dlp
-    const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputPath}" "${url}"`;
-    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
+    let videoOutputFilename = '';
+    let audioOutputFilename = '';
+    let videoOutputPath = '';
+    let audioOutputPath = '';
+    let videoOutputUrl = '';
+    let audioOutputUrl = '';
+    let hasAudio = false;
 
-    const stats = await fs.stat(outputPath);
-    onProgress?.(100, 'Download complete!');
+    if (separateAudio) {
+      videoOutputFilename = `${safeTitle}_only_video.mp4`;
+      audioOutputFilename = `${safeTitle}_only_audio.m4a`;
+      videoOutputPath = path.join(FOLDERS.OUTPUT, videoOutputFilename);
+      audioOutputPath = path.join(FOLDERS.OUTPUT, audioOutputFilename);
+      videoOutputUrl = `/api/files/output/${videoOutputFilename}`;
+      audioOutputUrl = `/api/files/output/${audioOutputFilename}`;
+
+      onProgress?.(20, `Downloading Video: ${info.title}...`);
+      // Download ONLY the best video stream without audio
+      const videoCmd = `yt-dlp -f "bestvideo[ext=mp4]/bestvideo/best" -o "${videoOutputPath}" "${url}"`;
+      await execAsync(videoCmd, { maxBuffer: 1024 * 1024 * 100 });
+
+      onProgress?.(50, `Downloading Audio...`);
+      hasAudio = true;
+      try {
+        // Download ONLY the best audio stream
+        const audioCmd = `yt-dlp -f "bestaudio[ext=m4a]/bestaudio/best" -o "${audioOutputPath}" "${url}"`;
+        await execAsync(audioCmd, { maxBuffer: 1024 * 1024 * 100 });
+      } catch {
+        hasAudio = false;
+      }
+    } else {
+      videoOutputFilename = `${safeTitle}.mp4`;
+      videoOutputPath = path.join(FOLDERS.OUTPUT, videoOutputFilename);
+      videoOutputUrl = `/api/files/output/${videoOutputFilename}`;
+
+      onProgress?.(20, `Downloading Merged Media: ${info.title}...`);
+      // Download best video and audio merged
+      const videoCmd = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best" --merge-output-format mp4 -o "${videoOutputPath}" "${url}"`;
+      await execAsync(videoCmd, { maxBuffer: 1024 * 1024 * 100 });
+    }
+
+    onProgress?.(70, `Fetching subtitles...`);
+    let transcriptData = [];
+    try {
+      // Execute the python script to fetch robust transcripts using youtube-transcript-api
+      const languagesArg = config?.subtitleLanguage || 'en,hi';
+      // Extract the 11-char video ID using regex
+      const videoIdMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+      const videoId = videoIdMatch ? videoIdMatch[1] : url;
+
+      const cmd = `python3 scripts/fetch_metadata.py ${videoId} "${languagesArg}"`;
+      const { stdout } = await execAsync(cmd);
+
+      const result = JSON.parse(stdout.trim());
+      if (result.success && result.data && result.data.length > 0) {
+        transcriptData = result.data;
+      }
+    } catch (err) {
+      console.error("Failed to fetch youtube transcript via python:", err);
+    }
+
+    // Save transcript to disk if we have data
+    let transcriptOutputPath = '';
+    let transcriptOutputUrl = '';
+    if (transcriptData.length > 0) {
+      const transcriptFilename = `${safeTitle}_subtitle.json`;
+      transcriptOutputPath = path.join(FOLDERS.OUTPUT, transcriptFilename);
+      transcriptOutputUrl = `/api/files/output/${transcriptFilename}`;
+      await fs.writeFile(transcriptOutputPath, JSON.stringify(transcriptData, null, 2), 'utf8');
+    }
+
+    onProgress?.(90, `Extracting metadata...`);
+    const metadata = await extractMetadata(videoOutputPath);
+    metadata.title = info.title;
+
+    onProgress?.(100, 'YouTube processing complete!');
+
+    const outputs: any = {
+      video: { type: 'video', path: videoOutputPath, url: videoOutputUrl },
+      text: { type: 'text', path: transcriptOutputPath, url: transcriptOutputUrl, data: transcriptData },
+      metadata: { type: 'any', path: '', data: metadata }
+    };
+
+    if (hasAudio) {
+      outputs.audio = { type: 'audio', path: audioOutputPath, url: audioOutputUrl };
+    }
 
     return {
       success: true,
       message: `Downloaded: ${info.title}`,
-      outputs: {
-        video: { type: 'video', path: outputPath, url: `/api/files/input/${outputFilename}` },
-        metadata: { type: 'text', path: '', data: info }
-      },
-      data: {
-        title: info.title,
-        duration: info.duration,
-        description: info.description,
-        filename: outputFilename
-      }
+      outputs,
+      data: metadata
     };
   } catch (error) {
     return { success: false, error: `YouTube download failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
@@ -224,7 +360,7 @@ export async function downloadYouTubeVideo(
 
 // Image Input
 export async function executeImageInput(
-  config: { source: string; fileUrl?: string; fileName?: string },
+  config: { source: string; fileName?: string },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
@@ -250,7 +386,7 @@ export async function executeImageInput(
 
 // Audio Input
 export async function executeAudioInput(
-  config: { source: string; fileUrl?: string; fileName?: string },
+  config: { source: string; fileName?: string },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
@@ -317,9 +453,11 @@ export async function executeAIImage(
 
     onProgress?.(30, 'Creating image...');
 
-    console.log(`[AI IMAGE TILE] Calling zai.images.generations.create with size ${size}...`);
+    const prompt = config.prompt?.trim() || "A beautiful, high quality intricate realistic image";
+
+    console.log(`[AI IMAGE TILE] Calling zai.images.generations.create with size ${size} and prompt: "${prompt}"...`);
     const response = await zai.images.generations.create({
-      prompt: config.prompt,
+      prompt: prompt,
       size: size as '1024x1024',
     });
     console.log(`[AI IMAGE TILE] Received API response success!`);
@@ -340,11 +478,41 @@ export async function executeAIImage(
       success: true,
       outputs: {
         image: { type: 'image', path: outputPath, url: `/api/files/output/${filename}` }
-      }
+      },
+      data: { path: outputPath }
     };
   } catch (error) {
-    console.error(`\n[AI IMAGE TILE] ERROR:`, error);
-    return { success: false, error: `Image generation failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+    console.warn(`[AI IMAGE TILE] ZAI Failed, falling back to Grok Extension...`, error);
+    try {
+      onProgress?.(10, 'ZAI unavailable. Sending prompt to Grok Automate Extension...');
+      const taskId = addGrokTask({
+        prompt: config.prompt,
+        mode: 'textToImage',
+        aspectRatio: config.aspectRatio || '1:1',
+      });
+
+      onProgress?.(30, 'Waiting for Grok Extension to generate image (Keep Grok.com open)...');
+
+      const grokResult = await waitForGrokTask(taskId, 300000); // 5 mins
+
+      if (grokResult.status === 'failed' || !grokResult.result?.dataBase64) {
+        throw new Error(grokResult.result?.error || 'Grok extension failed to deliver media');
+      }
+
+      const extractedPath = grokResult.result.dataBase64;
+      onProgress?.(100, 'Image generated via Grok!');
+
+      return {
+        success: true,
+        outputs: {
+          image: { type: 'image', path: extractedPath, url: `/api/files/output/${path.basename(extractedPath)}` }
+        },
+        data: { path: extractedPath }
+      };
+    } catch (grokError) {
+      console.error(`\n[AI IMAGE TILE] GROK FALLBACK ERROR:`, grokError);
+      return { success: false, error: `Image generation failed (Both ZAI and Grok): ${grokError instanceof Error ? grokError.message : 'Unknown error'}` };
+    }
   }
 }
 
@@ -371,51 +539,138 @@ export async function executeAIVideo(
 
     onProgress?.(20, 'Starting video generation...');
 
+    // Parse duration properly, fallback to 5
+    const durNum = Number(config.duration) || 5;
+    const finalDuration = [5, 10].includes(durNum) ? durNum : 5;
+
     const params: Record<string, unknown> = {
       prompt: config.prompt,
       size,
-      duration: config.duration || 5,
+      duration: finalDuration,
       quality: config.quality || 'speed',
       fps: 30,
+      model: inputImage ? 'cogvideox-flash' : 'cogvideox'
     };
 
     if (inputImage) {
       params.image_url = inputImage;
     }
 
-    console.log(`[AI VIDEO TILE] Calling zai.video.generations.create with params:`, JSON.stringify(params));
-    const task = await zai.video.generations.create(params);
-    console.log(`[AI VIDEO TILE] Task created successfully. Task ID: ${task?.id}`);
+    console.log(`[AI VIDEO TILE] Patching ZAI client for proxy compatibility...`);
+    // Patch ZAI SDK methods because the remote proxy expects /video/generations and GET /video/generations/:id
+    const originalConfig = (zai as any).config;
 
-    onProgress?.(50, 'Video processing...');
-
-    // Poll for completion (simplified)
-    // In production, you'd use webhooks or polling
-    let videoBase64 = null;
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 5000));
-      // Check status - implementation depends on SDK
-      onProgress?.(50 + (i * 0.8), 'Processing video...');
-    }
-
-    if (!videoBase64) {
-      return { success: false, error: 'Video generation timeout', data: { taskId: task.id } };
-    }
-
-    const filename = `ai_video_${uuidv4()}.mp4`;
-    const outputPath = path.join(FOLDERS.OUTPUT, filename);
-
-    onProgress?.(100, 'Video generated!');
-
-    return {
-      success: true,
-      outputs: {
-        video: { type: 'video', path: outputPath, url: `/api/files/output/${filename}` }
-      }
+    zai.video.generations.create = async function (body: any) {
+      const url = `${originalConfig.baseUrl}/video/generations`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${originalConfig.apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return await response.json();
     };
+
+    zai.async.result.query = async function (taskId: string | { task_id: string }) {
+      // Handle BOTH string and the object case (which is a bug in the proxy)
+      const id = typeof taskId === 'string' ? taskId : (taskId as any).task_id;
+      const url = `${originalConfig.baseUrl}/video/generations/${id}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${originalConfig.apiKey}`
+        }
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return await response.json();
+    };
+
+    console.log(`[AI VIDEO TILE] Calling ZAI SDK directly...`);
+    const taskInfo = await zai.video.generations.create(params);
+    const taskId = (taskInfo as any).id || (taskInfo as any).taskId;
+
+    console.log(`[AI VIDEO TILE] Task created successfully. Task ID: ${taskId}`);
+    onProgress?.(50, 'Video processing in cloud...');
+
+    // Polling task loop
+    let pollCount = 0;
+    const maxPolls = 60;
+    const pollInterval = 5000;
+
+    while (pollCount < maxPolls) {
+      pollCount++;
+      const result = await zai.async.result.query(taskId);
+
+      console.log(`[AI VIDEO TILE] Poll ${pollCount}/${maxPolls}: Status ${result.task_status}`);
+
+      if (result.task_status === 'SUCCESS') {
+        const videoUrl = result.video_result?.[0]?.url || result.video_url || result.url || result.video;
+        if (!videoUrl) throw new Error("Video succeeded but no URL was returned by API");
+
+        console.log(`[AI VIDEO TILE] Downloading final video from ${videoUrl}`);
+        const vidRes = await fetch(videoUrl);
+        if (!vidRes.ok) throw new Error(`Download fetch failed with status ${vidRes.status}`);
+
+        const arrayBuffer = await vidRes.arrayBuffer();
+        const filename = `ai_video_${uuidv4()}.mp4`;
+        const outputPath = path.join(FOLDERS.OUTPUT, filename);
+
+        await fs.writeFile(outputPath, Buffer.from(arrayBuffer));
+        onProgress?.(100, 'Video processing completed!');
+
+        return {
+          success: true,
+          outputs: {
+            video: { type: 'video', path: outputPath, url: `/api/files/output/${filename}` }
+          },
+          data: { taskId }
+        };
+      }
+
+      if (result.task_status === 'FAIL') {
+        throw new Error(`Video Task failed in cloud: ${JSON.stringify(result)}`);
+      }
+
+      onProgress?.(50 + Math.floor((pollCount / maxPolls) * 45), `Rendering video... (${pollCount * 5}s)`);
+      await new Promise(r => setTimeout(r, pollInterval));
+    }
+
+    throw new Error('Video generation timed out after 5 minutes');
   } catch (error) {
-    console.error(`\n[AI VIDEO TILE] ERROR:`, error);
-    return { success: false, error: `Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+    console.warn(`\n[AI VIDEO TILE] ZAI Failed, falling back to Grok...`, error);
+    try {
+      onProgress?.(10, 'ZAI unavailable. Sending prompt to Grok Automate Extension...');
+      const taskId = addGrokTask({
+        prompt: config.prompt,
+        mode: inputImage ? 'imageToVideo' : 'textToVideo',
+        aspectRatio: config.aspectRatio || '16:9',
+      });
+
+      onProgress?.(30, 'Waiting for Grok Extension to generate video (Keep Grok.com open)...');
+
+      const grokResult = await waitForGrokTask(taskId, 300000); // 5 mins
+
+      if (grokResult.status === 'failed' || !grokResult.result?.dataBase64) {
+        throw new Error(grokResult.result?.error || 'Grok extension failed to deliver media');
+      }
+
+      const extractedPath = grokResult.result.dataBase64;
+      onProgress?.(100, 'Video generated via Grok!');
+
+      return {
+        success: true,
+        outputs: {
+          video: { type: 'video', path: extractedPath, url: `/api/files/output/${path.basename(extractedPath)}` }
+        },
+        data: { path: extractedPath }
+      };
+    } catch (grokError) {
+      console.error(`\n[AI VIDEO TILE] GROK FALLBACK ERROR:`, grokError);
+      return { success: false, error: `Video generation failed (Both ZAI and Grok): ${grokError instanceof Error ? grokError.message : 'Unknown error'}` };
+    }
   }
 }
 
@@ -690,6 +945,51 @@ export async function executeSilenceRemoval(
   }
 }
 
+// Split Video
+export async function executeSplitVideo(
+  videoPath: string,
+  config: { splitTime: number },
+  onProgress?: ProgressCallback
+): Promise<ExecutionResult> {
+  const ffmpegCheck = await checkFfmpeg();
+  if (!ffmpegCheck.installed) {
+    return { success: false, error: ffmpegCheck.error };
+  }
+
+  try {
+    onProgress?.(0, 'Splitting video...');
+
+    const outputFilename1 = `split1_${uuidv4()}.mp4`;
+    const outputPath1 = path.join(FOLDERS.OUTPUT, outputFilename1);
+
+    const outputFilename2 = `split2_${uuidv4()}.mp4`;
+    const outputPath2 = path.join(FOLDERS.OUTPUT, outputFilename2);
+
+    const actualInputPath = resolveLocalPath(videoPath);
+
+    // Command to create part 1 (from start to splitTime)
+    const command1 = `ffmpeg -i "${actualInputPath}" -t ${config.splitTime} -c copy "${outputPath1}" -y`;
+    await execAsync(command1, { maxBuffer: 1024 * 1024 * 100 });
+    onProgress?.(50, 'First segment created...');
+
+    // Command to create part 2 (from splitTime to end)
+    const command2 = `ffmpeg -i "${actualInputPath}" -ss ${config.splitTime} -c copy "${outputPath2}" -y`;
+    await execAsync(command2, { maxBuffer: 1024 * 1024 * 100 });
+    onProgress?.(100, 'Video split successfully!');
+
+    return {
+      success: true,
+      outputs: {
+        video1: { type: 'video', path: outputPath1, url: `/api/files/output/${outputFilename1}` },
+        video2: { type: 'video', path: outputPath2, url: `/api/files/output/${outputFilename2}` }
+      }
+    };
+  } catch (error) {
+    console.error(`\n[SPLIT VIDEO TILE] ERROR:`, error);
+    return { success: false, error: `Video splitting failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
+}
+
 // Speed Adjustment
 export async function executeSpeed(
   videoPath: string,
@@ -711,7 +1011,9 @@ export async function executeSpeed(
     // ATempo supports 0.5 to 100.0, if out of bounds need to chain it, but for our simple case:
     const audioFilter = `atempo=${config.speed}`;
 
-    let command = `ffmpeg -i "${videoPath}" -filter_complex "[0:v]${videoFilter}[v]`;
+    const actualInputPath = resolveLocalPath(videoPath);
+
+    let command = `ffmpeg -i "${actualInputPath}" -filter_complex "[0:v]${videoFilter}[v]`;
     if (config.preserveAudio) {
       command += `;[0:a]${audioFilter}[a]" -map "[v]" -map "[a]"`;
     } else {
@@ -791,31 +1093,110 @@ export async function executeReverse(
   }
 
   try {
-    onProgress?.(0, 'Reversing media...');
-    const outputFilename = `reverse_${uuidv4()}.mp4`;
+    onProgress?.(0, 'Preparing media for reversal...');
+    const actualInputPath = resolveLocalPath(videoPath);
+    const baseName = path.parse(actualInputPath).name;
+    const outputFilename = `${baseName}_reversed.mp4`;
     const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
 
-    let filters = '';
-    const maps: string[] = [];
-    if (config.reverseVideo) {
-      filters += '[0:v]reverse[v];';
-      maps.push('-map', '"[v]"');
-    } else {
-      maps.push('-map', '0:v');
+    // Create a temporary directory for chunks
+    const tempDirId = uuidv4();
+    const tempDirPath = path.join(FOLDERS.TEMP, `reverse_${tempDirId}`);
+    await fs.mkdir(tempDirPath, { recursive: true });
+
+    // Probe checking if video has an audio stream to prevent filter crash
+    let hasAudioStream = false;
+    try {
+      const { stdout: probeOut } = await execAsync(`ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "${actualInputPath}"`);
+      hasAudioStream = probeOut.trim().length > 0;
+    } catch {
+      // Ignore if probe fails, default false
     }
 
-    if (config.reverseAudio) {
-      filters += '[0:a]areverse[a]';
-      maps.push('-map', '"[a]"');
-    } else {
-      maps.push('-map', '0:a');
+    try {
+      // 1. Split video into 5-second segments
+      onProgress?.(10, 'Segmenting video to prevent memory overload...');
+      const segmentPattern = path.join(tempDirPath, 'chunk_%04d.mp4');
+      const splitCommand = `ffmpeg -i "${actualInputPath}" -f segment -segment_time 5 -c copy "${segmentPattern}" -y`;
+      await execAsync(splitCommand, { maxBuffer: 1024 * 1024 * 100 });
+
+      // 2. Read all generated chunks
+      const files = await fs.readdir(tempDirPath);
+      const chunkFiles = files.filter(f => f.startsWith('chunk_') && f.endsWith('.mp4')).sort();
+
+      if (chunkFiles.length === 0) {
+        throw new Error("Failed to split video into chunks.");
+      }
+
+      // 3. Reverse each chunk individually
+      const reversedChunks: string[] = [];
+      for (let i = 0; i < chunkFiles.length; i++) {
+        const chunkFile = chunkFiles[i];
+        const chunkPath = path.join(tempDirPath, chunkFile);
+        const reversedChunkFilename = `rev_${chunkFile}`;
+        const reversedChunkPath = path.join(tempDirPath, reversedChunkFilename);
+
+        const progressPercent = 20 + Math.floor((i / chunkFiles.length) * 60);
+        onProgress?.(progressPercent, `Reversing segment ${i + 1} of ${chunkFiles.length}...`);
+
+        let filters = '';
+        const maps: string[] = [];
+
+        if (config.reverseVideo) {
+          filters += `[0:v]reverse[v]`;
+          maps.push(`-map "[v]"`);
+        } else {
+          maps.push(`-map 0:v`);
+        }
+
+        const shouldReverseAudio = config.reverseAudio && hasAudioStream;
+        if (shouldReverseAudio) {
+          if (filters.length > 0) filters += ';';
+          filters += `[0:a]areverse[a]`;
+          maps.push(`-map "[a]"`);
+        } else if (hasAudioStream) {
+          maps.push(`-map 0:a?`);
+        }
+
+        let command = '';
+        if (filters) {
+          // Re-encode to standard format during reversal
+          command = `ffmpeg -i "${chunkPath}" -filter_complex "${filters}" ${maps.join(' ')} -c:v libx264 ${hasAudioStream ? '-c:a aac' : ''} -y "${reversedChunkPath}"`;
+        } else {
+          command = `ffmpeg -i "${chunkPath}" -c copy -y "${reversedChunkPath}"`;
+        }
+
+        await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
+        reversedChunks.push(reversedChunkFilename);
+      }
+
+      // 4. Create concat list in reverse order (last chunk plays first)
+      onProgress?.(85, 'Stitching reversed segments...');
+      const concatListPath = path.join(tempDirPath, 'concat.txt');
+      let concatFileContent = '';
+
+      // Iterate backwards to stitch from end to start
+      for (let i = reversedChunks.length - 1; i >= 0; i--) {
+        // use relative names in concat file, ensure safe formatting
+        concatFileContent += `file '${reversedChunks[i]}'\n`;
+      }
+      await fs.writeFile(concatListPath, concatFileContent, 'utf8');
+
+      // 5. Concatenate all reversed chunks
+      const concatCommand = `ffmpeg -f concat -safe 0 -i "${concatListPath}" -c copy -y "${outputPath}"`;
+      await execAsync(concatCommand, { maxBuffer: 1024 * 1024 * 100 });
+
+    } finally {
+      // 6. Cleanup temporary directory
+      onProgress?.(95, 'Cleaning up temporary files...');
+      try {
+        await fs.rm(tempDirPath, { recursive: true, force: true });
+      } catch (e) {
+        console.error("Failed to cleanup reverse temp directory:", e);
+      }
     }
 
-    const filterDirective = filters.endsWith(';') ? filters.slice(0, -1) : filters;
-    const command = `ffmpeg -i "${videoPath}" -filter_complex "${filterDirective}" ${maps.join(' ')} -c:v libx264 -c:a aac "${outputPath}" -y`;
-
-    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    onProgress?.(100, 'Media reversed!');
+    onProgress?.(100, 'Media reversed successfully!');
 
     return {
       success: true,
@@ -1159,10 +1540,14 @@ export async function executeVideoPreview(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   onProgress?.(100, 'Video ready for preview');
+
+  const isOutput = typeof videoPath === 'string' && (videoPath.includes('/output/') || videoPath.includes('\\output\\'));
+  const routeDir = isOutput ? 'output' : 'input';
+
   return {
     success: true,
     outputs: {
-      video: { type: 'video', path: videoPath, url: `/api/files/input/${path.basename(videoPath)}` }
+      video: { type: 'video', path: videoPath, url: `/api/files/${routeDir}/${path.basename(videoPath)}` }
     },
     data: { previewType: 'video', path: videoPath }
   };
@@ -1173,10 +1558,14 @@ export async function executeImagePreview(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   onProgress?.(100, 'Image ready for preview');
+
+  const isOutput = typeof imagePath === 'string' && (imagePath.includes('/output/') || imagePath.includes('\\output\\') || imagePath.includes('output_'));
+  const routeDir = isOutput ? 'output' : 'input';
+
   return {
     success: true,
     outputs: {
-      image: { type: 'image', path: imagePath, url: `/api/files/input/${path.basename(imagePath)}` }
+      image: { type: 'image', path: imagePath, url: `/api/files/${routeDir}/${path.basename(imagePath)}` }
     },
     data: { previewType: 'image', path: imagePath }
   };
@@ -1187,10 +1576,14 @@ export async function executeAudioPreview(
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   onProgress?.(100, 'Audio ready for preview');
+
+  const isOutput = typeof audioPath === 'string' && (audioPath.includes('/output/') || audioPath.includes('\\output\\'));
+  const routeDir = isOutput ? 'output' : 'input';
+
   return {
     success: true,
     outputs: {
-      audio: { type: 'audio', path: audioPath, url: `/api/files/input/${path.basename(audioPath)}` }
+      audio: { type: 'audio', path: audioPath, url: `/api/files/${routeDir}/${path.basename(audioPath)}` }
     },
     data: { previewType: 'audio', path: audioPath }
   };

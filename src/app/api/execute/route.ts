@@ -23,6 +23,7 @@ import {
   executeSpeed,
   executeWatermark,
   executeReverse,
+  executeSplitVideo,
   FOLDERS,
 } from '@/lib/tile-executor';
 
@@ -47,189 +48,175 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'tileType is required' }, { status: 400 });
     }
 
-    // Progress callback (for SSE in future)
-    const onProgress = (progress: number, message: string) => {
-      console.log(`[${tileType}] ${progress}%: ${message}`);
-    };
-
-    let result;
-
-    // Route to appropriate executor
-    switch (tileType) {
-      // Input tiles
-      case 'video-input':
-        result = await executeVideoInput(config, onProgress);
-        break;
-
-      case 'youtube-trigger':
-        result = await executeVideoInput({ source: 'url', fileUrl: config.url }, onProgress);
-        break;
-
-      case 'image-input':
-        result = await executeImageInput(config, onProgress);
-        break;
-
-      case 'audio-input':
-        result = await executeAudioInput(config, onProgress);
-        break;
-
-      case 'text-input':
-        result = await executeTextInput(config, onProgress);
-        break;
-
-      // AI Generation tiles
-      case 'ai-image':
-        result = await executeAIImage(config, onProgress);
-        break;
-
-      case 'ai-video':
-        result = await executeAIVideo(config, inputs.image, onProgress);
-        break;
-
-      case 'ai-avatar':
-        result = await executeAIAvatar(config, onProgress);
-        break;
-
-      // Video processing tiles
-      case 'reframe':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeReframe(inputs.video, config, onProgress);
-        break;
-
-      case 'clips':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeClips(inputs.video, config, onProgress);
-        break;
-
-      case 'silence-removal':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeSilenceRemoval(inputs.video, config, onProgress);
-        break;
-
-      case 'captions':
-      case 'cinematic-captions':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeCaptions(inputs.video, inputs.text || '', config, onProgress);
-        break;
-
-      case 'audio-enhance':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeAudioEnhance(inputs.video, config, onProgress);
-        break;
-
-      case 'speed':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeSpeed(inputs.video, config, onProgress);
-        break;
-
-      case 'watermark':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        // watermarks use `inputs.image` if available
-        result = await executeWatermark(inputs.video, inputs.image, config, onProgress);
-        break;
-
-      case 'reverse':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeReverse(inputs.video, config, onProgress);
-        break;
-
-      // Transcription
-      case 'transcribe':
-        if (!inputs.video && !inputs.audio) {
-          return NextResponse.json({ error: 'Video or audio input required' }, { status: 400 });
-        }
-        result = await executeTranscribe(inputs.video || inputs.audio, config, onProgress);
-        break;
-
-      // Animation tiles
-      case 'manim':
-        result = await executeManim(config.script || inputs.text, config, onProgress);
-        break;
-
-      case 'remotion':
-        result = await executeRemotion(config.composition || inputs.text, config, onProgress);
-        break;
-
-      // Output tiles
-      case 'video-output':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeVideoOutput(inputs.video, config, onProgress);
-        break;
-
-      // Preview tiles
-      case 'video-preview':
-        if (!inputs.video) {
-          return NextResponse.json({ error: 'Video input required' }, { status: 400 });
-        }
-        result = await executeVideoPreview(inputs.video, onProgress);
-        break;
-
-      case 'image-preview':
-        if (!inputs.image) {
-          return NextResponse.json({ error: 'Image input required' }, { status: 400 });
-        }
-        result = await executeImagePreview(inputs.image, onProgress);
-        break;
-
-      case 'audio-preview':
-        if (!inputs.audio) {
-          return NextResponse.json({ error: 'Audio input required' }, { status: 400 });
-        }
-        result = await executeAudioPreview(inputs.audio, onProgress);
-        break;
-
-      // Logic tiles - just pass through
-      case 'branch':
-      case 'merge':
-        result = {
-          success: true,
-          outputs: inputs,
-          message: 'Logic tile processed'
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const sendEvent = (event: string, data: any) => {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         };
-        break;
 
-      default:
-        // For tiles without specific implementation, return simulated success
-        result = {
-          success: true,
-          message: `${tileType} executed (simulated)`,
-          outputs: inputs,
-          data: { simulated: true }
+        const onProgress = (progress: number, message: string) => {
+          console.log(`[${tileType}] ${progress}%: ${message}`);
+          sendEvent('progress', { nodeId, progress, message });
         };
-    }
 
-    return NextResponse.json({
-      success: result.success,
-      nodeId,
-      tileType,
-      ...result
+        try {
+          sendEvent('executing', { nodeId, tileType, progress: 0, status: 'running' });
+
+          let result;
+          // Route to appropriate executor
+          switch (tileType) {
+            // Input tiles
+            case 'video-input':
+              result = await executeVideoInput(config, onProgress);
+              break;
+            case 'youtube-trigger':
+              result = await executeVideoInput({ source: 'url', fileUrl: config.url }, onProgress);
+              break;
+            case 'image-input':
+              result = await executeImageInput(config, onProgress);
+              break;
+            case 'audio-input':
+              result = await executeAudioInput(config, onProgress);
+              break;
+            case 'text-input':
+              result = await executeTextInput(config, onProgress);
+              break;
+
+            // AI Generation tiles
+            case 'ai-image':
+              result = await executeAIImage(config, onProgress);
+              break;
+            case 'ai-video':
+              result = await executeAIVideo(config, inputs.image, onProgress);
+              break;
+            case 'ai-avatar':
+              result = await executeAIAvatar(config, onProgress);
+              break;
+
+            // Video processing tiles
+            case 'reframe':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeReframe(inputs.video, config, onProgress);
+              break;
+            case 'clips':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeClips(inputs.video, config, onProgress);
+              break;
+            case 'silence-removal':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeSilenceRemoval(inputs.video, config, onProgress);
+              break;
+            case 'captions':
+            case 'cinematic-captions':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeCaptions(inputs.video, inputs.text || '', config, onProgress);
+              break;
+            case 'audio-enhance':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeAudioEnhance(inputs.video, config, onProgress);
+              break;
+            case 'speed':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeSpeed(inputs.video, config, onProgress);
+              break;
+            case 'watermark':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeWatermark(inputs.video, inputs.image, config, onProgress);
+              break;
+            case 'reverse':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeReverse(inputs.video, config, onProgress);
+              break;
+            case 'split-video':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeSplitVideo(inputs.video, config, onProgress);
+              break;
+
+            // Transcription
+            case 'transcribe':
+              if (!inputs.video && !inputs.audio) throw new Error('Video or audio input required');
+              result = await executeTranscribe(inputs.video || inputs.audio, config, onProgress);
+              break;
+
+            // Animation tiles
+            case 'manim':
+              result = await executeManim(config.script || inputs.text, config, onProgress);
+              break;
+            case 'remotion':
+              result = await executeRemotion(config.composition || inputs.text, config, onProgress);
+              break;
+
+            // Output tiles
+            case 'video-output':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeVideoOutput(inputs.video, config, onProgress);
+              break;
+
+            // Preview tiles
+            case 'video-preview':
+              if (!inputs.video) throw new Error('Video input required');
+              result = await executeVideoPreview(inputs.video, onProgress);
+              break;
+            case 'image-preview':
+              if (!inputs.image) throw new Error('Image input required');
+              result = await executeImagePreview(inputs.image, onProgress);
+              break;
+            case 'audio-preview':
+              if (!inputs.audio) throw new Error('Audio input required');
+              result = await executeAudioPreview(inputs.audio, onProgress);
+              break;
+
+            // Logic tiles - just pass through
+            case 'branch':
+            case 'merge':
+              result = {
+                success: true,
+                outputs: inputs,
+                message: 'Logic tile processed'
+              };
+              break;
+
+            default:
+              result = {
+                success: true,
+                message: `${tileType} executed (simulated)`,
+                outputs: inputs,
+                data: { simulated: true }
+              };
+          }
+
+          sendEvent('executed', {
+            success: result.success,
+            nodeId,
+            tileType,
+            ...result
+          });
+        } catch (error) {
+          console.error('Execution stream error:', error);
+          sendEvent('error', {
+            success: false,
+            nodeId,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        } finally {
+          controller.close();
+        }
+      }
+    });
+
+    return new NextResponse(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
 
   } catch (error) {
-    console.error('Execution error:', error);
+    console.error('Execution preparation error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { success: false, error: 'Failed to initialize execution stream' },
       { status: 500 }
     );
   }

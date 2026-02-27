@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import fs from 'fs';
+import path from 'path';
 
 /**
  * POST /api/generate/status
@@ -22,11 +24,21 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Status API] Checking status for task: ${taskId}`);
 
-    // Create ZAI instance
-    const zai = await ZAI.create();
+    // Create config bypass because the SDK's internal `.check` and query logic are either broken or hallucinated when hitting the proxy
+    const configData = fs.readFileSync(path.join(process.cwd(), '.z-ai-config'), 'utf-8');
+    const zaiConfig = JSON.parse(configData);
 
-    // Check video generation status
-    const result = await (zai.video.generations as any).check(taskId.trim());
+    // Fetch proxy directly to avoid SDK generating a 400 Bad Request
+    const pollRes = await fetch(`${zaiConfig.baseUrl}/video/generations/${taskId.trim()}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${zaiConfig.apiKey}` }
+    });
+
+    if (!pollRes.ok) {
+      throw new Error(`Polling failed with status ${pollRes.status}: ${await pollRes.text()}`);
+    }
+
+    const result = await pollRes.json();
 
     const status = result.task_status || result.status;
     const videoUrl = result.video_url || result.output?.video_url;

@@ -27,12 +27,9 @@ export interface VideoInputTileData extends BaseTileData {
   label: 'Video Input';
   icon: 'video';
   config: {
-    source: 'upload' | 'url';
-    fileUrl?: string;
+    source: 'upload' | 'youtube';
     fileName?: string;
-    duration?: number;
-    resolution?: { width: number; height: number };
-    fps?: number;
+    youtubeUrl?: string;
   };
 }
 
@@ -310,4 +307,11 @@ export interface TileDefinition {
   inputs: TilePort[];
   outputs: TilePort[];
   isConfigurable: boolean;
+  configOptions?: {
+    id: string;
+    label: string;
+    type: 'text' | 'select' | 'color' | 'number' | 'file-upload' | 'boolean';
+    options?: { value: string; label: string }[];
+    accept?: string;
+  }[];
 }

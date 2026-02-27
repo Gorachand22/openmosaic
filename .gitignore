@@ -49,3 +49,9 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# App generated folders
+/input/
+/output/
+/temp/
+/workflows/

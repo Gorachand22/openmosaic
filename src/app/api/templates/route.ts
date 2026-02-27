@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readdir, stat, readFile } from 'fs/promises';
+import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { mkdir } from 'fs/promises';
 
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         const safeFilename = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
         const filepath = path.join(TEMPLATES_DIR, safeFilename);
 
-        await require('fs/promises').writeFile(filepath, buffer);
+        await writeFile(filepath, buffer);
 
         return NextResponse.json({ success: true, message: 'Template uploaded' });
     } catch (error) {

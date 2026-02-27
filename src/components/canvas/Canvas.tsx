@@ -14,8 +14,6 @@ import {
   type OnNodesChange,
   type OnEdgesChange,
   type Connection,
-  applyNodeChanges,
-  applyEdgeChanges,
   BackgroundVariant,
   type Node,
   type Edge,
@@ -28,7 +26,7 @@ import type { TileData } from '@/lib/tile-types';
 import { TileNode } from './TileNode';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, getEdgeColor } from '@/lib/utils';
 import { TILE_REGISTRY } from '@/lib/tile-registry';
 import {
   Play,
@@ -43,6 +41,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useWorkspaceStore } from '@/lib/workspace-store';
+import { v4 as uuidv4 } from 'uuid';
 
 // Custom node types
 const nodeTypes = {
@@ -89,14 +88,19 @@ const isValidConnection = (connection: Connection, nodes: Node<TileData>[], edge
 
 function CanvasInner({ className }: CanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const clipboardRef = useRef<Node<TileData>[]>([]);
   const { screenToFlowPosition } = useReactFlow();
   const [connectionStatus, setConnectionStatus] = useState<'valid' | 'invalid' | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
+  const [activeConnectionColor, setActiveConnectionColor] = useState<string>('#6366f1');
 
   const {
     nodes,
     edges,
+    onNodesChange,
+    onEdgesChange,
     setNodes,
     setEdges,
     addNode,
@@ -109,6 +113,7 @@ function CanvasInner({ className }: CanvasProps) {
     workflowName,
     isDirty: canvasIsDirty,
     deleteNode,
+    disconnectNodes,
     edgeStyle,
     snapToGrid,
     showMinimap,
@@ -121,36 +126,39 @@ function CanvasInner({ className }: CanvasProps) {
   const displayWorkflowName = activeWorkspace?.name || workflowName;
   const isDirty = activeWorkspace?.isDirty || canvasIsDirty;
 
-  // Handle node changes (position, selection, etc.)
-  const onNodesChange: OnNodesChange = useCallback(
-    (changes) => {
-      setNodes(applyNodeChanges<any>(changes, nodes) as any);
-    },
-    [nodes, setNodes]
-  );
-
-  // Handle edge changes
-  const onEdgesChange: OnEdgesChange = useCallback(
-    (changes) => {
-      setEdges(applyEdgeChanges(changes, edges));
-    },
-    [edges, setEdges]
-  );
-
   // Track selection changes
   const onSelectionChange = useCallback(
     (params: OnSelectionChangeParams) => {
-      const selectedIds = params.nodes.map(n => n.id);
-      setSelectedNodeIds(selectedIds);
+      const selectedNodes = params.nodes.map(n => n.id);
+      const selectedEdges = params.edges.map(e => e.id);
+      setSelectedNodeIds(selectedNodes);
+      setSelectedEdgeIds(selectedEdges);
       // Also update store selection
-      if (selectedIds.length === 1) {
-        selectNode(selectedIds[0]);
+      if (selectedNodes.length === 1) {
+        selectNode(selectedNodes[0]);
       } else {
         selectNode(null);
       }
     },
     [selectNode]
   );
+
+  // Restore canvas layout from persisted workspace on initial page load (Reloading with 'R')
+  const isHydrated = useRef(false);
+  useEffect(() => {
+    if (!isHydrated.current) {
+      const workspaceStore = useWorkspaceStore.getState();
+      const currentWorkspace = workspaceStore.workspaces.find((ws) => ws.id === workspaceStore.activeWorkspaceId);
+
+      if (currentWorkspace) {
+        setNodes(currentWorkspace.nodes || []);
+        setEdges(currentWorkspace.edges || []);
+      } else if (workspaceStore.workspaces.length === 0) {
+        workspaceStore.createWorkspace(); // Initialize a blank workspace if completely empty
+      }
+      isHydrated.current = true;
+    }
+  }, [setNodes, setEdges]);
 
   // Handle new connections with validation
   const onConnect = useCallback(
@@ -173,9 +181,16 @@ function CanvasInner({ className }: CanvasProps) {
   );
 
   // Validate connection while dragging
-  const onConnectStart = useCallback(() => {
+  const onConnectStart = useCallback((event: React.MouseEvent | React.TouchEvent, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
     setConnectionStatus(null);
     setConnectionError(null);
+
+    // Find color based on source node and handle
+    let color = '#6366f1';
+    if (params.nodeId) {
+      color = getEdgeColor(params.nodeId, params.handleId);
+    }
+    setActiveConnectionColor(color);
   }, []);
 
   const onConnectEnd = useCallback(() => {
@@ -223,15 +238,21 @@ function CanvasInner({ className }: CanvasProps) {
     [screenToFlowPosition, addNode]
   );
 
-  // Delete selected nodes
-  const deleteSelectedNodes = useCallback(() => {
+  // Delete selected nodes and edges
+  const deleteSelectedElements = useCallback(() => {
     if (selectedNodeIds.length > 0) {
       selectedNodeIds.forEach(nodeId => {
         deleteNode(nodeId);
       });
       setSelectedNodeIds([]);
     }
-  }, [selectedNodeIds, deleteNode]);
+    if (selectedEdgeIds.length > 0) {
+      selectedEdgeIds.forEach(edgeId => {
+        disconnectNodes(edgeId);
+      });
+      setSelectedEdgeIds([]);
+    }
+  }, [selectedNodeIds, selectedEdgeIds, deleteNode, disconnectNodes]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -242,10 +263,10 @@ function CanvasInner({ className }: CanvasProps) {
 
       if (isInputFocused) return;
 
-      // Delete selected nodes with Delete or Backspace
+      // Delete selected nodes and edges with Delete or Backspace
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
-        deleteSelectedNodes();
+        deleteSelectedElements();
       }
 
       // Select all with Ctrl+A
@@ -255,11 +276,60 @@ function CanvasInner({ className }: CanvasProps) {
         setSelectedNodeIds(allNodeIds);
         setNodes(nodes.map(n => ({ ...n, selected: true })));
       }
+
+      // Copy with Ctrl+C
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        const selectedNodes = nodes.filter(n => selectedNodeIds.includes(n.id));
+        if (selectedNodes.length > 0) {
+          clipboardRef.current = JSON.parse(JSON.stringify(selectedNodes));
+        }
+      }
+
+      // Paste with Ctrl+V
+      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        if (clipboardRef.current.length > 0) {
+          const newNodes = clipboardRef.current.map(copiedNode => {
+            return {
+              ...copiedNode,
+              id: uuidv4(),
+              position: {
+                x: copiedNode.position.x + 50,
+                y: copiedNode.position.y + 50
+              },
+              selected: true,
+            };
+          });
+
+          setNodes([...nodes.map(n => ({ ...n, selected: false })), ...newNodes]);
+          setSelectedNodeIds(newNodes.map(n => n.id));
+
+          // Update clipboard with the new pasted nodes so holding Ctrl+V cascades them beautifully
+          clipboardRef.current = JSON.parse(JSON.stringify(newNodes));
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteSelectedNodes, nodes, setNodes]);
+  }, [deleteSelectedElements, nodes, selectedNodeIds, setNodes]);
+
+  // Alt+Drag duplication
+  const onNodeDragStart = useCallback(
+    (event: React.MouseEvent, node: Node, activeNodes: Node[]) => {
+      if (event.altKey) {
+        // Clone the dragged node(s) and leave them at the original position while you drag the original
+        const clonedNodes = activeNodes.map((activeNode) => ({
+          ...activeNode,
+          id: uuidv4(),
+          selected: false,
+          position: { x: activeNode.position.x, y: activeNode.position.y },
+          data: JSON.parse(JSON.stringify(activeNode.data)),
+        }));
+        setNodes([...nodes, ...clonedNodes]);
+      }
+    },
+    [nodes, setNodes]
+  );
 
   // Export workflow as JSON
   const handleExport = () => {
@@ -286,6 +356,7 @@ function CanvasInner({ className }: CanvasProps) {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onNodeClick={onNodeClick}
+        onNodeDragStart={onNodeDragStart}
         onPaneClick={onPaneClick}
         onDragOver={onDragOver}
         onDrop={onDrop}
@@ -303,11 +374,11 @@ function CanvasInner({ className }: CanvasProps) {
         defaultEdgeOptions={{
           type: edgeStyle,
           animated: true,
-          style: { strokeWidth: 2, stroke: '#6366f1' },
+          style: { strokeWidth: 2 },
         }}
         connectionLineStyle={{
           strokeWidth: 2,
-          stroke: connectionStatus === 'invalid' ? '#ef4444' : '#6366f1',
+          stroke: connectionStatus === 'invalid' ? '#ef4444' : activeConnectionColor, // Use dynamic color
           strokeDasharray: connectionStatus === 'invalid' ? '5,5' : 'none',
         }}
         connectionLineType={edgeStyle as any}
@@ -378,7 +449,7 @@ function CanvasInner({ className }: CanvasProps) {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20"
-                  onClick={deleteSelectedNodes}
+                  onClick={deleteSelectedElements}
                   title="Delete selected (Delete)"
                 >
                   <Trash2 className="h-4 w-4" />

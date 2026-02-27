@@ -23,14 +23,13 @@ export async function POST(request: NextRequest) {
 
     // Generate filename
     const originalName = file.name || 'uploaded_file';
-    const ext = path.extname(originalName);
-    const finalFilename = filename || `${path.basename(originalName, ext)}_${uuidv4()}${ext}`;
-    
+    const finalFilename = filename || originalName;
+
     // Save to input folder
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const filepath = path.join(FOLDERS.INPUT, finalFilename);
-    
+
     await writeFile(filepath, buffer);
 
     // Get file stats
@@ -66,7 +65,7 @@ export async function GET() {
   try {
     const { readdir, stat } = await import('fs/promises');
     const files = await readdir(FOLDERS.INPUT);
-    
+
     const fileInfos = await Promise.all(
       files.map(async (filename) => {
         const filepath = path.join(FOLDERS.INPUT, filename);
