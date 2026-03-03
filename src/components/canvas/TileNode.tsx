@@ -223,7 +223,7 @@ function PreviewRenderer({ tileType, data, nodeId }: { tileType: string; data: a
   }
 
   // Video Preview
-  if (tileType === 'video-preview' || (tileType === 'video-output' && outputUrl)) {
+  if (tileType === 'video-preview') {
     return (
       <div className="mt-2 rounded overflow-hidden bg-black flex-1 min-h-0">
         {outputUrl ? (
@@ -316,8 +316,8 @@ function TileNodeComponent(props: TileNodeProps) {
   const { selected, id } = props;
   const data: any = props.data;
   const [showInfo, setShowInfo] = useState(false);
-  const { nodeExecutionProgress } = useCanvasStore();
-  const progress = nodeExecutionProgress?.[id];
+  const { executionProgress } = useCanvasStore();
+  const progress = executionProgress?.[id];
   const isCached = progress?.status === 'cached';
   const isCompleted = progress?.status === 'completed';
 

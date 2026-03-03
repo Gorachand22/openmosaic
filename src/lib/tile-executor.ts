@@ -108,13 +108,38 @@ export async function checkFfmpeg(): Promise<{ installed: boolean; version?: str
   }
 }
 
-export async function checkManim(): Promise<{ installed: boolean; version?: string; error?: string }> {
-  try {
-    const { stdout } = await execAsync('manim --version');
-    return { installed: true, version: stdout.trim() };
-  } catch {
-    return { installed: false, error: 'manim not installed. Run: pip install manim' };
+// Find the manim executable (could be in ~/.local/bin or /usr/local/bin etc.)
+function getManimBinary(): string {
+  const home = process.env.HOME || '/root';
+  const candidates = [
+    `${home}/.local/bin/manim`,
+    '/usr/local/bin/manim',
+    '/usr/bin/manim',
+    'manim',
+  ];
+  // Return first candidate with full path so exec can find it even without $PATH
+  // We'll verify existence at runtime via checkManim
+  return candidates[0]; // Primary candidate; fallback handled by execAsync PATH
+}
+
+export async function checkManim(): Promise<{ installed: boolean; version?: string; error?: string; bin?: string }> {
+  const home = process.env.HOME || '/root';
+  const candidates = [
+    `${home}/.local/bin/manim`,
+    '/usr/local/bin/manim',
+    '/usr/bin/manim',
+    'manim',
+  ];
+
+  for (const bin of candidates) {
+    try {
+      const { stdout } = await execAsync(`"${bin}" --version`);
+      return { installed: true, version: stdout.trim(), bin };
+    } catch {
+      continue;
+    }
   }
+  return { installed: false, error: 'manim not installed. Run: pip install manim' };
 }
 
 export async function checkWhisper(): Promise<{ installed: boolean; version?: string; error?: string }> {
@@ -212,6 +237,138 @@ export async function executeVideoInput(
     return { success: false, error: 'No video source provided' };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+// ========== VOICE TTS API (audio.z.ai) ==========
+export async function executeVoiceTTS(
+  inputs: Record<string, string>,
+  config: Record<string, unknown>,
+  onProgress?: (pct: number, msg: string) => void
+): Promise<ExecutionResult> {
+  try {
+    const text = inputs.text;
+    const voiceId = typeof config.voice_id === 'string' ? config.voice_id : '';
+
+    const speed = typeof config.speed === 'number' ? config.speed : 1.0;
+    const volume = typeof config.volume === 'number' ? Math.round(config.volume) : 1;
+
+    if (!text) {
+      return { success: false, error: 'Input text is required for Voice TTS generation' };
+    }
+    if (!voiceId) {
+      return { success: false, error: 'Please select a Voice profile from the dropdown' };
+    }
+
+    const token = process.env.Z_AUDIO_TOKEN;
+    const userId = process.env.Z_AUDIO_USER_ID;
+    const apiBase = process.env.Z_AUDIO_API_BASE || 'https://audio.z.ai/api';
+
+    if (!token || !userId) {
+      return { success: false, error: 'Z_AUDIO_TOKEN or Z_AUDIO_USER_ID missing from .env' };
+    }
+
+    onProgress?.(10, 'Initializing Voice Generation Request...');
+
+    const payload = {
+      voice_id: voiceId,
+      voice_name: 'Unknown', // Backend doesn't strictly need accurate name for clone ID
+      user_id: userId,
+      input_text: text,
+      speed,
+      volume
+    };
+
+    onProgress?.(30, 'Streaming audio chunks from API...');
+
+    const response = await fetch(`${apiBase}/v1/z-audio/tts/create`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`TTS API Error: ${response.status} ${errorText}`);
+    }
+
+    // Process SSE stream fully manually since Node `fetch` natively drains to buffer array
+    const streamText = await response.text();
+    const lines = streamText.split('\n');
+
+    let firstChunk = true;
+    const chunks: Buffer[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const jsonStr = line.substring(6).trim();
+        if (jsonStr && jsonStr !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed.audio) {
+              const chunkBuffer = Buffer.from(parsed.audio, 'base64');
+
+              if (firstChunk) {
+                // Keep the entire wav header block for the first chunk
+                chunks.push(chunkBuffer);
+                firstChunk = false;
+              } else {
+                // Strip the 44-byte WAV header on all subsequent chunks
+                if (chunkBuffer.length > 44) {
+                  chunks.push(chunkBuffer.subarray(44));
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore parse errors from partial broken events in stream
+          }
+        }
+      }
+    }
+
+    if (chunks.length === 0) {
+      throw new Error('No audio data received from generation api');
+    }
+
+    onProgress?.(80, 'Assembling exact frame boundaries...');
+
+    // Stitch
+    const assembledWav = Buffer.concat(chunks);
+    const totalSize = assembledWav.length;
+
+    if (totalSize > 44) {
+      // Patch WAV header with correct final binary size
+      // RIFF size (index 4-7, Little Endian, file size - 8)
+      assembledWav.writeUInt32LE(totalSize - 8, 4);
+
+      // Data chunk size (index 40-43, Little Endian, file size - 44)
+      assembledWav.writeUInt32LE(totalSize - 44, 40);
+    }
+
+    onProgress?.(95, 'Writing generated audio file locally...');
+
+    const outputFilename = `tts_${process.hrtime()[1]}.wav`;
+    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
+    const outputUrl = `/api/files/output/${outputFilename}`;
+
+    await fs.writeFile(outputPath, assembledWav);
+
+    onProgress?.(100, 'TTS Generation Complete!');
+
+    return {
+      success: true,
+      outputs: {
+        audio: { type: 'audio', path: outputPath, url: outputUrl }
+      }
+    };
+
+  } catch (error) {
+    console.error('[VOICE TTS API TILE] ERROR:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown generation error' };
   }
 }
 
@@ -360,7 +517,7 @@ export async function downloadYouTubeVideo(
 
 // Image Input
 export async function executeImageInput(
-  config: { source: string; fileName?: string },
+  config: { fileName?: string },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
@@ -386,7 +543,7 @@ export async function executeImageInput(
 
 // Audio Input
 export async function executeAudioInput(
-  config: { source: string; fileName?: string },
+  config: { fileName?: string },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   try {
@@ -412,7 +569,7 @@ export async function executeAudioInput(
 
 // Text Input
 export async function executeTextInput(
-  config: { content: string; format: string },
+  config: { content: string },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   onProgress?.(100, 'Text loaded!');
@@ -421,7 +578,7 @@ export async function executeTextInput(
     outputs: {
       text: { type: 'text', path: '', data: config.content }
     },
-    data: { content: config.content, format: config.format }
+    data: { content: config.content }
   };
 }
 
@@ -553,7 +710,22 @@ export async function executeAIVideo(
     };
 
     if (inputImage) {
-      params.image_url = inputImage;
+      if (inputImage.startsWith('data:image/') || inputImage.startsWith('http://') || inputImage.startsWith('https://')) {
+        params.image_url = inputImage;
+      } else {
+        const localImagePath = resolveLocalPath(inputImage);
+        try {
+          const imageBuffer = await fs.readFile(localImagePath);
+          const base64Data = imageBuffer.toString('base64');
+          const ext = path.extname(localImagePath).toLowerCase().substring(1) || 'jpeg';
+          const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          params.image_url = `data:${mimeType};base64,${base64Data}`;
+          console.log(`[AI VIDEO TILE] Successfully encoded local image to base64 (${Math.round(base64Data.length / 1024)} KB)`);
+        } catch (err) {
+          console.error(`[AI VIDEO TILE] Failed to read input image for encoding:`, err);
+          throw new Error(`Failed to read input image: ${err}`);
+        }
+      }
     }
 
     console.log(`[AI VIDEO TILE] Patching ZAI client for proxy compatibility...`);
@@ -562,16 +734,31 @@ export async function executeAIVideo(
 
     zai.video.generations.create = async function (body: any) {
       const url = `${originalConfig.baseUrl}/video/generations`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${originalConfig.apiKey}`
-        },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) throw new Error(await response.text());
-      return await response.json();
+      let retries = 3;
+      let delay = 30000;
+
+      while (retries >= 0) {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${originalConfig.apiKey}`
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (response.status === 429 && retries > 0) {
+          onProgress?.(25, `Rate limit reached. Retrying in ${delay / 1000}s...`);
+          console.warn(`[AI VIDEO TILE] Rate limit (429) hit. Waiting ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          retries--;
+          delay *= 2;
+          continue;
+        }
+
+        if (!response.ok) throw new Error(`API request failed with status ${response.status}: ${await response.text()}`);
+        return await response.json();
+      }
     };
 
     zai.async.result.query = async function (taskId: string | { task_id: string }) {
@@ -724,61 +911,6 @@ export async function executeAIAvatar(
 // VIDEO PROCESSING TILES
 // ============================================================
 
-// Reframe Video
-export async function executeReframe(
-  videoPath: string,
-  config: { targetRatio: string; mode: string; padding: string; backgroundColor: string },
-  onProgress?: ProgressCallback
-): Promise<ExecutionResult> {
-  const ffmpegCheck = await checkFfmpeg();
-  if (!ffmpegCheck.installed) {
-    return { success: false, error: ffmpegCheck.error };
-  }
-
-  try {
-    onProgress?.(0, 'Reframing video...');
-
-    // Get video dimensions
-    const { stdout: probeOut } = await execAsync(
-      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${videoPath}"`
-    );
-
-    const resolutions: Record<string, { w: number; h: number }> = {
-      '9:16': { w: 1080, h: 1920 },
-      '16:9': { w: 1920, h: 1080 },
-      '1:1': { w: 1080, h: 1080 },
-      '4:5': { w: 1080, h: 1350 },
-    };
-
-    const target = resolutions[config.targetRatio] || resolutions['9:16'];
-    const outputFilename = `reframed_${uuidv4()}.mp4`;
-    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-
-    let command: string;
-
-    if (config.padding === 'blur') {
-      command = `ffmpeg -i "${videoPath}" -filter_complex "[0:v]scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease[fg];[0:v]scale=${target.w}:${target.h}:force_original_aspect_ratio=increase,boxblur=20[bg];[bg][fg]overlay=(W-w)/2:(H-h)/2" -c:v libx264 -c:a aac "${outputPath}" -y`;
-    } else if (config.padding === 'color') {
-      command = `ffmpeg -i "${videoPath}" -vf "scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease,pad=${target.w}:${target.h}:(ow-iw)/2:(oh-ih)/2:${config.backgroundColor}" -c:v libx264 -c:a aac "${outputPath}" -y`;
-    } else {
-      command = `ffmpeg -i "${videoPath}" -vf "scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease,pad=${target.w}:${target.h}:(ow-iw)/2:(oh-ih)/2:black" -c:v libx264 -c:a aac "${outputPath}" -y`;
-    }
-
-    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-
-    onProgress?.(100, 'Reframe complete!');
-
-    return {
-      success: true,
-      outputs: {
-        video: { type: 'video', path: outputPath, url: `/api/files/output/${outputFilename}` }
-      }
-    };
-  } catch (error) {
-    console.error(`\n[REFRAME TILE] ERROR:`, error);
-    return { success: false, error: `Reframe failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
-  }
-}
 
 // Extract Clips
 export async function executeClips(
@@ -993,7 +1125,7 @@ export async function executeSplitVideo(
 // Speed Adjustment
 export async function executeSpeed(
   videoPath: string,
-  config: { speed: number; preserveAudio: boolean; pitchCorrection: boolean },
+  config: { speed: number | string; preserveAudio: boolean; pitchCorrection: boolean },
   onProgress?: ProgressCallback
 ): Promise<ExecutionResult> {
   const ffmpegCheck = await checkFfmpeg();
@@ -1002,28 +1134,58 @@ export async function executeSpeed(
   }
 
   try {
-    onProgress?.(0, 'Adjusting video speed...');
+    const rawSpeed = typeof config.speed === 'string' ? parseFloat(config.speed) : config.speed;
+    const speed = isNaN(rawSpeed) ? 1.0 : rawSpeed;
 
-    const outputFilename = `speed_${uuidv4()}.mp4`;
-    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
-    const videoFilter = `setpts=${1 / config.speed}*PTS`;
-
-    // ATempo supports 0.5 to 100.0, if out of bounds need to chain it, but for our simple case:
-    const audioFilter = `atempo=${config.speed}`;
+    onProgress?.(0, `Adjusting video speed to ${speed}x...`);
 
     const actualInputPath = resolveLocalPath(videoPath);
+    const baseName = path.parse(actualInputPath).name;
+    const outputFilename = `${baseName}_speed_${speed}x.mp4`;
+    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
 
-    let command = `ffmpeg -i "${actualInputPath}" -filter_complex "[0:v]${videoFilter}[v]`;
-    if (config.preserveAudio) {
-      command += `;[0:a]${audioFilter}[a]" -map "[v]" -map "[a]"`;
-    } else {
-      command += `" -map "[v]"`;
+    let hasAudioStream = false;
+    try {
+      const { stdout: probeOut } = await execAsync(`ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "${actualInputPath}"`);
+      hasAudioStream = probeOut.trim().length > 0;
+    } catch {
+      // Ignore if probe fails
     }
 
-    command += ` -c:v libx264 -c:a aac "${outputPath}" -y`;
+    const videoFilter = `setpts=${1 / speed}*PTS`;
 
+    let command = `ffmpeg -i "${actualInputPath}" -filter_complex "[0:v]${videoFilter}[v]`;
+    const maps: string[] = [`-map "[v]"`];
+
+    if (config.preserveAudio && hasAudioStream) {
+      if (config.pitchCorrection) {
+        // atempo maintains original pitch but changes speed (good for vocals)
+        // Note: atempo only allows 0.5 to 100.0 natively. For our options (0.25 to 4.0), it's safe if chained or strictly bounded.
+        // If speed is 0.25, we chain two atempo=0.5.
+        let audioFilter = '';
+        if (speed < 0.5) {
+          audioFilter = `atempo=0.5,atempo=${speed * 2.0}`;
+        } else {
+          audioFilter = `atempo=${speed}`;
+        }
+        command += `;[0:a]${audioFilter}[a]"`;
+      } else {
+        // asetrate changes speed AND pitch (creates chipmunk/demonic effect)
+        // Standard sample rate is 48000 Hz
+        const newSampleRate = Math.round(48000 * speed);
+        command += `;[0:a]asetrate=${newSampleRate},aresample=48000[a]"`;
+      }
+      maps.push(`-map "[a]"`);
+    } else {
+      command += `"`;
+    }
+
+    // Use ultrafast preset with CRF 18 to ensure visually lossless HD quality matching the original footage (Tradeoff: naturally larger file size due to fast processing)
+    command += ` ${maps.join(' ')} -c:v libx264 -preset ultrafast -crf 18 ${hasAudioStream && config.preserveAudio ? '-c:a aac' : ''} "${outputPath}" -y`;
+
+    onProgress?.(20, 'Encoding fast video output...');
     await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-    onProgress?.(100, 'Speed adjusted!');
+    onProgress?.(100, 'Speed adjusted successfully!');
 
     return {
       success: true,
@@ -1329,53 +1491,6 @@ export async function executeAudioEnhance(
 // TRANSCRIPTION TILE
 // ============================================================
 
-export async function executeTranscribe(
-  videoPath: string,
-  config: { language: string; model: string },
-  onProgress?: ProgressCallback
-): Promise<ExecutionResult> {
-  const whisperCheck = await checkWhisper();
-  if (!whisperCheck.installed) {
-    return { success: false, error: whisperCheck.error };
-  }
-
-  try {
-    onProgress?.(0, 'Extracting audio...');
-
-    // Extract audio first
-    const audioPath = path.join(FOLDERS.TEMP, `${uuidv4()}.wav`);
-    await execAsync(`ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`);
-
-    onProgress?.(20, 'Transcribing with Whisper...');
-
-    // Run whisper
-    const outputPath = path.join(FOLDERS.OUTPUT, `transcript_${uuidv4()}`);
-    const command = `whisper "${audioPath}" --model ${config.model || 'base'} --language ${config.language || 'en'} --output_dir "${FOLDERS.TEMP}" --output_format srt`;
-
-    await execAsync(command, { maxBuffer: 1024 * 1024 * 100 });
-
-    // Read the generated SRT
-    const srtFile = audioPath.replace('.wav', '.srt');
-    const transcript = await fs.readFile(srtFile, 'utf-8');
-
-    // Cleanup
-    await fs.unlink(audioPath).catch(() => { });
-    await fs.unlink(srtFile).catch(() => { });
-
-    onProgress?.(100, 'Transcription complete!');
-
-    return {
-      success: true,
-      outputs: {
-        text: { type: 'text', path: '', data: transcript }
-      },
-      data: { transcript }
-    };
-  } catch (error) {
-    console.error(`\n[TRANSCRIBE TILE] ERROR:`, error);
-    return { success: false, error: `Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
-  }
-}
 
 // ============================================================
 // MANIM TILE - Animation Generation
@@ -1391,50 +1506,141 @@ export async function executeManim(
     return { success: false, error: manimCheck.error };
   }
 
-  try {
-    onProgress?.(0, 'Creating Manim animation...');
+  const manimBin = (manimCheck as any).bin || 'manim';
 
-    // Create a Python file from the script
-    const pythonScript = `
-from manim import *
+  try {
+    onProgress?.(0, 'Creating Manim animation script...');
+
+    // Map quality config value to manim quality flags
+    // Manim quality flags: -ql (480p15), -qm (720p30), -qh (1080p60), -qp (1440p60), -qk (2160p60)
+    const qualityMap: Record<string, string> = {
+      'l': '-ql',   // 480p15  - low
+      'm': '-qm',   // 720p30  - medium
+      'h': '-qh',   // 1080p60 - high
+      'p': '-qp',   // 1440p60 - production
+      'k': '-qk',   // 2160p60 - 4K
+    };
+    const qualityFlag = qualityMap[config.quality] || '-ql';
+    const format = config.format || 'mp4';
+
+    // Generate a unique base name for the script (no spaces or special chars)
+    const scriptBaseName = `manim_${uuidv4().replace(/-/g, '_')}`;
+    const workspaceDir = path.join(FOLDERS.TEMP, scriptBaseName);
+    await fs.mkdir(workspaceDir, { recursive: true });
+
+    const scriptFileName = `scene.py`;
+    const scriptPath = path.join(workspaceDir, scriptFileName);
+
+    // Properly indent each line of the user script for the construct() method
+    const constructBody = (script || '').split('\n')
+      .map(line => `        ${line}`)  // 8 spaces indent for method body
+      .join('\n');
+
+    const pythonScript = `from manim import *
 
 class GeneratedScene(Scene):
     def construct(self):
-        ${script}
+${constructBody || '        self.wait(1)'}
 `;
 
-    const scriptPath = path.join(FOLDERS.TEMP, `manim_${uuidv4()}.py`);
     await fs.writeFile(scriptPath, pythonScript);
 
-    onProgress?.(30, 'Rendering animation...');
+    onProgress?.(20, 'Rendering animation (this may take a few minutes)...');
 
-    // Run manim
-    const quality = config.quality || 'p'; // p=1080p, m=720p, l=480p
-    const format = config.format || 'mp4';
+    // Run manim from workspaceDir so that the media/ folder is created isolated there
+    // Command: manim <quality_flag> <script_path> GeneratedScene
+    // Manim will output to: <workspaceDir>/media/videos/scene/<quality_folder>/GeneratedScene.mp4
+    const command = `"${manimBin}" ${qualityFlag} "${scriptPath}" GeneratedScene`;
+    const { stdout: manimStdout, stderr: manimStderr } = await execAsync(command, {
+      cwd: workspaceDir,
+      maxBuffer: 1024 * 1024 * 500,
+      timeout: 600000, // 10 minute timeout for complex animations
+      env: { ...process.env, HOME: process.env.HOME || '/root' },
+    });
 
-    const command = `manim -${quality}qh "${scriptPath}" GeneratedScene -o animation.${format}`;
-    await execAsync(command, { maxBuffer: 1024 * 1024 * 500, timeout: 300000 });
+    onProgress?.(80, 'Locating rendered video file...');
 
-    // Find the output file
-    const mediaDir = path.join(FOLDERS.TEMP, 'media');
-    const outputFile = path.join(FOLDERS.OUTPUT, `manim_${uuidv4()}.${format}`);
+    // Manim creates: <workspaceDir>/media/videos/scene/<qualitySubfolder>/GeneratedScene.mp4
+    // qualitySubfolder examples: 480p15, 720p30, 1080p60, 1440p60, 2160p60
+    // Search recursively under media/videos/scene/ for GeneratedScene.mp4
+    const manimVideosDir = path.join(workspaceDir, 'media', 'videos', 'scene');
+    let renderedFilePath: string | null = null;
 
-    // Move the generated file (manim creates complex folder structure)
-    // This is simplified - in production, parse the output path
-    onProgress?.(90, 'Moving output...');
+    try {
+      // List all subdirs (quality folders) and find the output file
+      const qualityDirs = await fs.readdir(manimVideosDir);
+      for (const qualDir of qualityDirs) {
+        const candidate = path.join(manimVideosDir, qualDir, `GeneratedScene.${format}`);
+        try {
+          await fs.stat(candidate);
+          renderedFilePath = candidate;
+          break;
+        } catch {
+          // Not in this quality dir, try next
+        }
+      }
+    } catch (dirErr) {
+      // Could not read the media/videos directory
+      console.error('[MANIM] Could not read media dir:', dirErr);
+    }
 
-    await fs.unlink(scriptPath).catch(() => { });
+    if (!renderedFilePath) {
+      // Fallback: search workspace recursively for GeneratedScene.format
+      const findFileRecursive = async (dir: string, targetName: string): Promise<string | null> => {
+        try {
+          const items = await fs.readdir(dir, { withFileTypes: true });
+          for (const item of items) {
+            const fullPath = path.join(dir, item.name);
+            if (item.isDirectory()) {
+              const found = await findFileRecursive(fullPath, targetName);
+              if (found) return found;
+            } else if (item.isFile() && item.name === targetName) {
+              return fullPath;
+            }
+          }
+        } catch (e) {
+          // Ignore read errors
+        }
+        return null;
+      };
+
+      renderedFilePath = await findFileRecursive(workspaceDir, `GeneratedScene.${format}`);
+    }
+
+    if (!renderedFilePath) {
+      await fs.rm(workspaceDir, { recursive: true, force: true }).catch(() => { });
+      throw new Error(
+        `Manim rendered successfully but output file could not be located.\nSearched: ${manimVideosDir}\nStdout: ${manimStdout}\nStderr: ${manimStderr}`
+      );
+    }
+
+    onProgress?.(90, 'Copying video to output folder...');
+
+    // Copy rendered video to the project OUTPUT folder
+    const outputFilename = `manim_${uuidv4()}.${format}`;
+    const outputPath = path.join(FOLDERS.OUTPUT, outputFilename);
+    await fs.copyFile(renderedFilePath, outputPath);
+
+    // Clean up entire workspace (script, cache, output, texts)
+    await fs.rm(workspaceDir, { recursive: true, force: true }).catch(() => { });
 
     onProgress?.(100, 'Animation complete!');
 
     return {
       success: true,
       outputs: {
-        video: { type: 'video', path: outputFile, url: `/api/files/output/${path.basename(outputFile)}` }
-      }
+        video: {
+          type: 'video',
+          path: outputPath,
+          url: `/api/files/output/${outputFilename}`
+        }
+      },
+      data: { path: outputPath }
     };
   } catch (error) {
-    return { success: false, error: `Manim failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('[MANIM] Execution error:', errMsg);
+    return { success: false, error: `Manim failed: ${errMsg}` };
   }
 }
 
@@ -1588,3 +1794,349 @@ export async function executeAudioPreview(
     data: { previewType: 'audio', path: audioPath }
   };
 }
+
+// ========== SOX AUDIO PROCESSING NODE ==========
+
+export async function executeSoxAudio(
+  inputs: Record<string, string>,
+  config: Record<string, unknown>,
+  onProgress?: (pct: number, msg: string) => void
+) {
+  onProgress?.(0, 'Starting SoX audio processing...');
+
+  let audioPath = resolveLocalPath(inputs.audio || '');
+  if (!audioPath) throw new Error('No audio input provided');
+
+  const originalExt = path.extname(audioPath).toLowerCase();
+  const baseName = path.basename(audioPath, originalExt);
+  let tempAudioPath = '';
+
+  // Use ffprobe to detect true internal format, ignoring the file extension which might be spoofed
+  let actualFormat = '';
+  try {
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`);
+    actualFormat = stdout.trim().toLowerCase();
+  } catch (e) {
+    onProgress?.(5, 'Warning: ffprobe failed to detect format, relying on FFmpeg fallback...');
+  }
+
+  // Common true formats for wav/mp3/ogg/flac
+  const isNativeAudio = ['wav', 'mp3', 'ogg', 'flac'].some(fmt => actualFormat.includes(fmt));
+
+  if (actualFormat !== '' && !isNativeAudio) {
+    onProgress?.(10, `Converting unsupported format (${actualFormat || 'unknown'}) to WAV...`);
+    tempAudioPath = path.join(FOLDERS.TEMP, `${uuidv4()}_sox_temp.wav`);
+    try {
+      await execAsync(`ffmpeg -i "${audioPath}" -vn -acodec pcm_s16le -ar 44100 -ac 2 "${tempAudioPath}" -y`);
+      audioPath = tempAudioPath;
+    } catch (e: any) {
+      throw new Error(`Could not extract audio from file (unsupported codec or format): ${e.message}`);
+    }
+  }
+  const operation = String(config.operation || 'normalize');
+  const outputPath = path.join(FOLDERS.OUTPUT, `${baseName}_sox_${operation}.wav`);
+
+  onProgress?.(20, `Applying SoX operation: ${operation}...`);
+
+  let soxArgs = '';
+
+  switch (operation) {
+    case 'normalize':
+      soxArgs = `"${audioPath}" "${outputPath}" gain -n ${config.normalizeDb ?? -3}`;
+      break;
+    case 'noise-reduction': {
+      // SoX noisered: generate noise profile then apply
+      const profilePath = path.join(FOLDERS.TEMP, `${uuidv4()}_noise.prof`);
+      // Use first 0.5s as noise sample
+      await execAsync(`sox "${audioPath}" -n trim 0 0.5 noiseprof "${profilePath}"`);
+      soxArgs = `"${audioPath}" "${outputPath}" noisered "${profilePath}" ${config.noiseFloor !== undefined ? (Math.abs(Number(config.noiseFloor)) / 100).toFixed(2) : '0.5'}`;
+      break;
+    }
+    case 'fade': {
+      const fadeIn = Number(config.fadeIn ?? 2);
+      const fadeOut = Number(config.fadeOut ?? 2);
+      soxArgs = `"${audioPath}" "${outputPath}" fade t ${fadeIn} -0 ${fadeOut}`;
+      break;
+    }
+    case 'trim': {
+      const trimStart = Number(config.trimStart ?? 0);
+      const trimEnd = Number(config.trimEnd ?? 0);
+      soxArgs = trimEnd > 0
+        ? `"${audioPath}" "${outputPath}" trim ${trimStart} =${trimEnd}`
+        : `"${audioPath}" "${outputPath}" trim ${trimStart}`;
+      break;
+    }
+    case 'reverb': {
+      const reverberance = Number(config.reverberance ?? 50);
+      const roomScale = Number(config.roomScale ?? 100);
+      const stereoDepth = Number(config.stereoDepth ?? 100);
+      soxArgs = `"${audioPath}" "${outputPath}" reverb ${reverberance} 50 ${roomScale} ${stereoDepth}`;
+      break;
+    }
+    case 'pitch': {
+      // pitch shift in cents (100 cents = 1 semitone)
+      const semitones = Number(config.pitchShift ?? 0);
+      const cents = semitones * 100;
+      soxArgs = `"${audioPath}" "${outputPath}" pitch ${cents}`;
+      break;
+    }
+    case 'tempo': {
+      const tempo = Number(config.tempo ?? 100) / 100;
+      soxArgs = `"${audioPath}" "${outputPath}" tempo ${tempo}`;
+      break;
+    }
+    case 'equalizer': {
+      const freq = Number(config.eqFrequency ?? 1000);
+      const width = Number(config.eqWidth ?? 1.0);
+      const gain = Number(config.eqGain ?? 0);
+      soxArgs = `"${audioPath}" "${outputPath}" equalizer ${freq} ${width}q ${gain}`;
+      break;
+    }
+    default:
+      throw new Error(`Unknown SoX operation: ${operation}`);
+  }
+
+  await execAsync(`sox ${soxArgs}`, { maxBuffer: 1024 * 1024 * 100 });
+
+  if (tempAudioPath) {
+    fs.unlink(tempAudioPath).catch(() => { });
+  }
+
+  onProgress?.(100, 'SoX processing complete!');
+
+  return {
+    success: true,
+    outputs: {
+      audio: { type: 'audio', path: outputPath, url: `/api/files/output/${path.basename(outputPath)}` }
+    }
+  };
+}
+
+// ========== IMAGEMAGICK NODE ==========
+
+export async function executeImageMagick(
+  inputs: Record<string, string>,
+  config: Record<string, unknown>,
+  onProgress?: (pct: number, msg: string) => void
+) {
+  onProgress?.(0, 'Starting ImageMagick processing...');
+
+  let imagePath = resolveLocalPath(inputs.image || '');
+  if (!imagePath) throw new Error('No image input provided');
+
+  const originalExt = path.extname(imagePath).toLowerCase();
+  const baseName = path.basename(imagePath, originalExt);
+  let tempImagePath = '';
+
+  let actualFormat = '';
+  try {
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 "${imagePath}"`);
+    actualFormat = stdout.trim().toLowerCase();
+  } catch (e) {
+    onProgress?.(5, 'Warning: ffprobe failed to detect format, relying on FFmpeg fallback...');
+  }
+
+  // Treat as video if format name indicates common video containers
+  const isVideoContainer = ['mp4', 'matroska', 'webm', 'avi', 'mov', 'mpeg'].some(fmt => actualFormat.includes(fmt));
+
+  if (actualFormat !== '' && isVideoContainer) {
+    onProgress?.(10, `Extracting frame from video container (${actualFormat || 'unknown'})...`);
+    tempImagePath = path.join(FOLDERS.TEMP, `${uuidv4()}_im_temp.jpg`);
+    try {
+      await execAsync(`ffmpeg -i "${imagePath}" -vframes 1 "${tempImagePath}" -y`);
+      imagePath = tempImagePath;
+    } catch (e: any) {
+      throw new Error(`Could not extract image from video (file may contain no physical video stream): ${e.message}`);
+    }
+  }
+
+  const operation = String(config.operation || 'resize');
+  const outputFormat = String(config.outputFormat || 'jpg');
+  const outputPath = path.join(FOLDERS.OUTPUT, `${baseName}_im_${operation}.${outputFormat}`);
+
+  onProgress?.(30, `Applying ImageMagick operation: ${operation}...`);
+
+  let convertArgs = '';
+
+  switch (operation) {
+    case 'resize': {
+      const w = Number(config.width ?? 1920);
+      const h = Number(config.height ?? 1080);
+      const aspect = config.maintainAspect !== false;
+      convertArgs = aspect ? `-resize ${w}x${h}` : `-resize ${w}x${h}!`;
+      break;
+    }
+    case 'crop': {
+      const cw = Number(config.cropWidth ?? 1280);
+      const ch = Number(config.cropHeight ?? 720);
+      const cx = Number(config.cropX ?? 0);
+      const cy = Number(config.cropY ?? 0);
+      convertArgs = `-crop ${cw}x${ch}+${cx}+${cy} +repage`;
+      break;
+    }
+    case 'rotate':
+      convertArgs = `-rotate ${Number(config.degrees ?? 90)}`;
+      break;
+    case 'flip':
+      convertArgs = `-flop`;
+      break;
+    case 'flop':
+      convertArgs = `-flip`;
+      break;
+    case 'blur':
+      convertArgs = `-blur 0x${Number(config.blurRadius ?? 5)}`;
+      break;
+    case 'sharpen': {
+      const sr = Number(config.sharpenRadius ?? 2);
+      const ss = Number(config.sharpenSigma ?? 1.0);
+      convertArgs = `-sharpen ${sr}x${ss}`;
+      break;
+    }
+    case 'brightness-contrast': {
+      const b = Number(config.brightness ?? 0);
+      const c = Number(config.contrast ?? 0);
+      convertArgs = `-brightness-contrast ${b}x${c}`;
+      break;
+    }
+    case 'grayscale':
+      convertArgs = `-colorspace Gray`;
+      break;
+    case 'convert-format':
+      convertArgs = '';
+      break;
+    case 'border': {
+      const size = Number(config.borderSize ?? 10);
+      const color = String(config.borderColor ?? '#000000');
+      convertArgs = `-border ${size}x${size} -bordercolor "${color}"`;
+      break;
+    }
+    default:
+      throw new Error(`Unknown ImageMagick operation: ${operation}`);
+  }
+
+  await execAsync(`convert "${imagePath}" ${convertArgs} "${outputPath}"`, { maxBuffer: 1024 * 1024 * 50 });
+
+  if (tempImagePath) {
+    fs.unlink(tempImagePath).catch(() => { });
+  }
+
+  onProgress?.(100, 'ImageMagick processing complete!');
+
+  return {
+    success: true,
+    outputs: {
+      image: { type: 'image', path: outputPath, url: `/api/files/output/${path.basename(outputPath)}` }
+    }
+  };
+}
+
+// ========== D3 CHART GENERATOR NODE ==========
+
+export async function executeD3Chart(
+  inputs: Record<string, string>,
+  config: Record<string, unknown>,
+  onProgress?: (pct: number, msg: string) => void
+) {
+  onProgress?.(0, 'Generating D3 chart...');
+
+  const chartType = String(config.chartType || 'bar');
+  const title = String(config.title || 'Chart');
+  const width = Number(config.width ?? 1280);
+  const height = Number(config.height ?? 720);
+  const colorScheme = String(config.colorScheme || 'blue');
+  const xLabel = String(config.xLabel || 'X Axis');
+  const yLabel = String(config.yLabel || 'Y Axis');
+
+  // Parse data from JSON input or use sample
+  let rawData: Array<{ label: string; value: number }> = [];
+  const jsonInput = inputs.text || String(config.sampleData || '[]');
+  try {
+    rawData = JSON.parse(jsonInput);
+  } catch {
+    rawData = [{ label: 'A', value: 10 }, { label: 'B', value: 25 }, { label: 'C', value: 15 }];
+  }
+
+  const chartId = uuidv4().slice(0, 8);
+  const outputPath = path.join(FOLDERS.OUTPUT, `${chartType}_chart_${chartId}.png`);
+  const scriptPath = path.join(FOLDERS.TEMP, `d3_chart_${chartId}.py`);
+
+  onProgress?.(20, 'Generating chart using Python matplotlib...');
+
+  // Use Python matplotlib as it's more commonly available than Node D3
+  const colorMap: Record<string, string> = {
+    blue: '#2563EB', green: '#16A34A', red: '#DC2626',
+    purple: '#9333EA', orange: '#EA580C', rainbow: 'rainbow'
+  };
+  const color = colorMap[colorScheme] || '#2563EB';
+
+  const dataLabels = rawData.map(d => JSON.stringify(d.label)).join(', ');
+  const dataValues = rawData.map(d => d.value).join(', ');
+
+  const pythonScript = `
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
+
+labels = [${dataLabels}]
+values = [${dataValues}]
+
+fig, ax = plt.subplots(figsize=(${width / 100}, ${height / 100}), dpi=100)
+fig.patch.set_facecolor('#0f172a')
+ax.set_facecolor('#1e293b')
+ax.tick_params(colors='white')
+ax.xaxis.label.set_color('white')
+ax.yaxis.label.set_color('white')
+ax.title.set_color('white')
+for spine in ax.spines.values(): spine.set_edgecolor('#475569')
+
+chart_type = '${chartType}'
+if '${colorScheme}' == 'rainbow':
+    colors = plt.cm.rainbow(np.linspace(0, 1, len(values)))
+else:
+    colors = '${color}'
+
+if chart_type == 'bar':
+    ax.bar(labels, values, color=colors)
+elif chart_type == 'line':
+    ax.plot(labels, values, color='${color}', marker='o', linewidth=2, markersize=8)
+    ax.fill_between(range(len(labels)), values, alpha=0.3, color='${color}')
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+elif chart_type == 'pie':
+    ax.pie(values, labels=labels, autopct='%1.1f%%', colors=plt.cm.Set3.colors if '${colorScheme}'=='rainbow' else None)
+elif chart_type == 'scatter':
+    ax.scatter(range(len(values)), values, color=colors, s=100)
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+elif chart_type == 'area':
+    ax.fill_between(range(len(values)), values, alpha=0.6, color='${color}')
+    ax.plot(range(len(values)), values, color='${color}', linewidth=2)
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+
+ax.set_title('${title}', fontsize=16, pad=15, color='white')
+if chart_type != 'pie':
+    ax.set_xlabel('${xLabel}', color='white')
+    ax.set_ylabel('${yLabel}', color='white')
+
+plt.tight_layout()
+plt.savefig('${outputPath.replace(/\\/g, '\\\\')}', dpi=100, bbox_inches='tight', facecolor='#0f172a')
+plt.close()
+print("Chart saved successfully")
+`;
+
+  await fs.writeFile(scriptPath, pythonScript);
+  await execAsync(`python3 "${scriptPath}"`, { maxBuffer: 1024 * 1024 * 50 });
+  await fs.unlink(scriptPath).catch(() => { });
+
+  onProgress?.(100, 'Chart generated successfully!');
+
+  return {
+    success: true,
+    outputs: {
+      image: { type: 'image', path: outputPath, url: `/api/files/output/${path.basename(outputPath)}` }
+    }
+  };
+}
+

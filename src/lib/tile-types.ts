@@ -310,8 +310,14 @@ export interface TileDefinition {
   configOptions?: {
     id: string;
     label: string;
-    type: 'text' | 'select' | 'color' | 'number' | 'file-upload' | 'boolean';
+    description?: string;
+    type: 'text' | 'select' | 'color' | 'number' | 'file-upload' | 'boolean' | 'slider';
     options?: { value: string; label: string }[];
+    options_endpoint?: string;
     accept?: string;
+    showIf?: { field: string; value: string };
+    min?: number;
+    max?: number;
+    step?: number;
   }[];
 }

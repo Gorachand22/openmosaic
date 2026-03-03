@@ -8,12 +8,10 @@ import {
   executeAIImage,
   executeAIVideo,
   executeAIAvatar,
-  executeReframe,
   executeClips,
   executeSilenceRemoval,
   executeCaptions,
   executeAudioEnhance,
-  executeTranscribe,
   executeManim,
   executeRemotion,
   executeVideoOutput,
@@ -24,6 +22,10 @@ import {
   executeWatermark,
   executeReverse,
   executeSplitVideo,
+  executeSoxAudio,
+  executeImageMagick,
+  executeD3Chart,
+  executeVoiceTTS,
   FOLDERS,
 } from '@/lib/tile-executor';
 
@@ -85,20 +87,16 @@ export async function POST(request: NextRequest) {
 
             // AI Generation tiles
             case 'ai-image':
-              result = await executeAIImage(config, onProgress);
+              result = await executeAIImage({ ...config, prompt: inputs.text || config.prompt }, onProgress);
               break;
             case 'ai-video':
-              result = await executeAIVideo(config, inputs.image, onProgress);
+              result = await executeAIVideo({ ...config, prompt: inputs.text || config.prompt }, inputs.image, onProgress);
               break;
             case 'ai-avatar':
-              result = await executeAIAvatar(config, onProgress);
+              result = await executeAIAvatar({ ...config, prompt: inputs.text || config.prompt }, onProgress);
               break;
 
             // Video processing tiles
-            case 'reframe':
-              if (!inputs.video) throw new Error('Video input required');
-              result = await executeReframe(inputs.video, config, onProgress);
-              break;
             case 'clips':
               if (!inputs.video) throw new Error('Video input required');
               result = await executeClips(inputs.video, config, onProgress);
@@ -133,10 +131,21 @@ export async function POST(request: NextRequest) {
               result = await executeSplitVideo(inputs.video, config, onProgress);
               break;
 
-            // Transcription
-            case 'transcribe':
-              if (!inputs.video && !inputs.audio) throw new Error('Video or audio input required');
-              result = await executeTranscribe(inputs.video || inputs.audio, config, onProgress);
+            // New Tool Nodes
+            case 'sox-audio':
+              if (!inputs.audio) throw new Error('Audio input required for SoX processing');
+              result = await executeSoxAudio(inputs, config, onProgress);
+              break;
+            case 'image-magick':
+              if (!inputs.image) throw new Error('Image input required for ImageMagick');
+              result = await executeImageMagick(inputs, config, onProgress);
+              break;
+            case 'd3-chart':
+              result = await executeD3Chart(inputs, config, onProgress);
+              break;
+            case 'voice':
+              if (!inputs.text) throw new Error('Text script required for Voice TTS generation');
+              result = await executeVoiceTTS(inputs, config, onProgress);
               break;
 
             // Animation tiles
@@ -145,12 +154,6 @@ export async function POST(request: NextRequest) {
               break;
             case 'remotion':
               result = await executeRemotion(config.composition || inputs.text, config, onProgress);
-              break;
-
-            // Output tiles
-            case 'video-output':
-              if (!inputs.video) throw new Error('Video input required');
-              result = await executeVideoOutput(inputs.video, config, onProgress);
               break;
 
             // Preview tiles
@@ -253,8 +256,6 @@ export async function GET() {
       // Animation
       'manim',
       'remotion',
-      // Output
-      'video-output',
       // Preview
       'video-preview',
       'image-preview',

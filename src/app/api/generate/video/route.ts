@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import fs from "fs/promises";
+import path from "path";
+import { resolveLocalPath } from "@/lib/tile-executor";
 
 /**
  * POST /api/generate/video
@@ -16,12 +19,12 @@ import ZAI from "z-ai-web-dev-sdk";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { 
-      prompt, 
-      size = "768x1344", 
-      duration = 5, 
+    const {
+      prompt,
+      size = "768x1344",
+      duration = 5,
       quality = "speed",
-      imageUrl 
+      imageUrl
     } = body;
 
     // Validate required fields
@@ -58,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const isImageToVideo = imageUrl && typeof imageUrl === "string" && imageUrl.trim();
-    
+
     console.log(`[Video API] Starting ${isImageToVideo ? 'image-to-video' : 'text-to-video'} generation`);
     console.log(`[Video API] Prompt: "${prompt.substring(0, 50)}..." Size: ${size} Duration: ${duration}s Quality: ${quality}`);
 
@@ -76,14 +79,51 @@ export async function POST(request: NextRequest) {
 
     // Add image_url for image-to-video
     if (isImageToVideo) {
-      params.image_url = imageUrl.trim();
+      if (imageUrl.startsWith('data:image/') || imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        params.image_url = imageUrl.trim();
+      } else {
+        try {
+          const localImagePath = resolveLocalPath(imageUrl.trim());
+          const imageBuffer = await fs.readFile(localImagePath);
+          const base64Data = imageBuffer.toString('base64');
+          const ext = path.extname(localImagePath).toLowerCase().substring(1) || 'jpeg';
+          const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          params.image_url = `data:${mimeType};base64,${base64Data}`;
+          console.log(`[Video API] Encoded local image to base64 (${Math.round(base64Data.length / 1024)} KB)`);
+        } catch (err) {
+          console.error(`[Video API] Failed to read local image path:`, err);
+          return NextResponse.json(
+            { success: false, error: `Failed to read local image path: ${err}` },
+            { status: 400 }
+          );
+        }
+      }
     }
 
-    // Create video generation task
-    const task = await zai.video.generations.create(params);
+    // Create video generation task with retry logic for 429 Rate Limits
+    let task;
+    let retries = 3;
+    let delay = 30000;
+
+    while (retries >= 0) {
+      try {
+        task = await zai.video.generations.create(params);
+        break; // Success, exit loop
+      } catch (err: any) {
+        const errorMsg = err?.message || String(err);
+        if ((errorMsg.includes('429') || errorMsg.includes('Rate limit') || errorMsg.includes('rate limit')) && retries > 0) {
+          console.warn(`[Video API] Rate limit hit (429). Retrying in ${delay / 1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+          retries--;
+          delay *= 2;
+        } else {
+          throw err; // Throw immediately if not a rate limit or if out of retries
+        }
+      }
+    }
 
     const taskId = task.id;
-    
+
     if (!taskId) {
       console.error("[Video API] No task ID in response");
       return NextResponse.json(

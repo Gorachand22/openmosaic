@@ -181,7 +181,7 @@ function CanvasInner({ className }: CanvasProps) {
   );
 
   // Validate connection while dragging
-  const onConnectStart = useCallback((event: React.MouseEvent | React.TouchEvent, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
+  const onConnectStart = useCallback((event: any, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
     setConnectionStatus(null);
     setConnectionError(null);
 
@@ -395,27 +395,7 @@ function CanvasInner({ className }: CanvasProps) {
           color="hsl(var(--border))"
         />
         <Controls className="bg-background/90 border border-border rounded-lg shadow-lg" />
-        {showMinimap && (
-          <MiniMap
-            className="bg-background/90 border border-border rounded-lg shadow-lg"
-            nodeColor={(node) => {
-              const category = node.data?.category;
-              switch (category) {
-                case 'input':
-                  return '#3b82f6';
-                case 'action':
-                  return '#a855f7';
-                case 'output':
-                  return '#22c55e';
-                case 'logic':
-                  return '#f97316';
-                default:
-                  return '#6b7280';
-              }
-            }}
-            maskColor="rgba(0, 0, 0, 0.8)"
-          />
-        )}
+
 
         {/* Top Toolbar - Draggable */}
         <Panel position="top-center" className="flex items-center gap-2 pointer-events-none pt-4">

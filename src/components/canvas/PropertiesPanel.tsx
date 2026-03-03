@@ -28,6 +28,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 
 interface PropertiesPanelProps {
@@ -38,9 +39,46 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
   const { nodes, selectedNodeId, updateNode, deleteNode, executeNode, isExecuting } =
     useCanvasStore();
 
+  // State to hold dynamically fetched dropdown options (e.g. cloned voices)
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, { label: string, value: string }[]>>({});
+
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
-  if (!selectedNode) {
+  const definition = selectedNode
+    ? (TILE_REGISTRY[(selectedNode.data.tileType as string)] || TILE_REGISTRY[selectedNode.data.label.toLowerCase().replace(/\s+/g, '-')])
+    : undefined;
+
+  const config = selectedNode?.data?.config;
+
+  // Fetch dynamic options on mount or node select
+  useEffect(() => {
+    if (!definition?.configOptions) return;
+
+    definition.configOptions.forEach(async (opt) => {
+      if (opt.options_endpoint && !dynamicOptions[opt.id]) {
+        try {
+          const res = await fetch(opt.options_endpoint);
+          const data = await res.json();
+          if (data.success && data.voices) {
+            // Specific parsing for the proxy we just built
+            const allOptions = [
+              ...data.voices.cloned.map((v: any) => ({ ...v, label: `(Clone) ${v.label}` })),
+              ...data.voices.system.map((v: any) => ({ ...v, label: `(System) ${v.label}` }))
+            ];
+
+            setDynamicOptions(prev => ({
+              ...prev,
+              [opt.id]: allOptions
+            }));
+          }
+        } catch (e) {
+          console.error(`Failed to fetch options for ${opt.id}:`, e);
+        }
+      }
+    });
+  }, [selectedNodeId, definition]);
+
+  if (!selectedNode || !config || !definition) {
     return (
       <div
         className={cn(
@@ -57,9 +95,6 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
     );
   }
 
-  const definition = TILE_REGISTRY[selectedNode.data.label.toLowerCase().replace(/\s+/g, '-')];
-  const config = selectedNode.data.config;
-
   // Handle config change
   const handleConfigChange = (key: string, value: unknown) => {
     updateNode(selectedNodeId!, {
@@ -68,15 +103,41 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
   };
 
   // Render config field based on type
-  const renderConfigField = (key: string, value: unknown) => {
+  const renderConfigField = (key: string, value: unknown, explicitConfig?: any) => {
     // 1. Check if the Tile definition has explicitly defined UI for this config key
-    const explicitConfig = definition?.configOptions?.find((opt) => opt.id === key);
+    if (!explicitConfig) {
+      explicitConfig = definition?.configOptions?.find((opt) => opt.id === key);
+    }
 
     if (explicitConfig) {
-      if (explicitConfig.type === 'select' && explicitConfig.options) {
+      // Evaluate conditional visibility
+      if (explicitConfig.showIf) {
+        if (config[explicitConfig.showIf.field] !== explicitConfig.showIf.value) {
+          return null; // Hide field
+        }
+      }
+
+      // Reusable label with tooltip helper
+      const LabelWithTooltip = () => (
+        <div className="flex items-center gap-2 mb-2">
+          <Label className="text-sm">{explicitConfig.label}</Label>
+          {explicitConfig.description && (
+            <div title={explicitConfig.description}>
+              <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+            </div>
+          )}
+        </div>
+      );
+
+      const isSelect = explicitConfig.type === 'select';
+      const hasOptions = explicitConfig.options || dynamicOptions[explicitConfig.id];
+
+      if (isSelect && hasOptions) {
+        const selectOptions = explicitConfig.options || dynamicOptions[explicitConfig.id] || [];
+
         return (
           <div key={key} className="space-y-2">
-            <Label className="text-sm">{explicitConfig.label}</Label>
+            <LabelWithTooltip />
             <Select
               value={String(value)}
               onValueChange={(v) => handleConfigChange(key, v)}
@@ -85,7 +146,7 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {explicitConfig.options.map((opt) => (
+                {selectOptions.map((opt: any) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -102,7 +163,7 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
       if (explicitConfig.type === 'text') {
         return (
           <div key={key} className="space-y-2">
-            <Label className="text-sm">{explicitConfig.label}</Label>
+            <LabelWithTooltip />
             <Input
               value={String(value || '')}
               onChange={(e) => handleConfigChange(key, e.target.value)}
@@ -116,7 +177,7 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
         const hasFile = typeof value === 'string' && value.length > 0;
         return (
           <div key={key} className="space-y-2">
-            <Label className="text-sm">{explicitConfig.label}</Label>
+            <LabelWithTooltip />
 
             {hasFile && (
               <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
@@ -170,6 +231,25 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
                 Selecting a new file will replace the current one.
               </p>
             )}
+          </div>
+        );
+      }
+
+      if (explicitConfig.type === 'slider') {
+        const numericValue = typeof value === 'number' ? value : explicitConfig.min ?? 0;
+        return (
+          <div key={key} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <LabelWithTooltip />
+              <span className="text-sm font-medium text-muted-foreground">{numericValue}</span>
+            </div>
+            <Slider
+              value={[numericValue]}
+              min={explicitConfig.min ?? 0}
+              max={explicitConfig.max ?? 100}
+              step={explicitConfig.step ?? 1}
+              onValueChange={([v]) => handleConfigChange(key, v)}
+            />
           </div>
         );
       }
@@ -403,9 +483,9 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
   };
 
   return (
-    <div className={cn('flex flex-col h-full', className)}>
+    <div className={cn('flex flex-col h-full overflow-hidden', className)}>
       {/* Header */}
-      <div className="p-4 border-b border-border/50">
+      <div className="p-4 border-b border-border/50 shrink-0">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">{selectedNode.data.label}</h2>
@@ -424,10 +504,10 @@ export function PropertiesPanel({ className }: PropertiesPanelProps) {
       </div>
 
       {/* Configuration */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-4 space-y-4">
           <div className="space-y-4">
-            {definition?.configOptions?.map((opt) => renderConfigField(opt.id, config[opt.id] ?? ''))}
+            {definition?.configOptions?.map((opt) => renderConfigField(opt.id, config[opt.id] ?? definition.defaultConfig[opt.id] ?? '', opt))}
             {Object.entries(config)
               .filter(([key]) => !definition?.configOptions?.find((opt) => opt.id === key))
               .map(([key, value]) =>

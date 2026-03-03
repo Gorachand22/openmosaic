@@ -95,11 +95,6 @@ export async function POST(request: NextRequest) {
         }
         break;
 
-      case 'video-output':
-        if (!['mp4', 'webm', 'mov'].includes(config.format)) {
-          validationErrors.push('Invalid output format');
-        }
-        break;
     }
 
     if (validationErrors.length > 0) {

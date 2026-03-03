@@ -1,4 +1,4 @@
-// OpenMosaic Tile Registry - Based on Mosaic.so Documentation
+// OpenMosaic Tile Registry
 // All tiles properly documented with inputs, outputs, and configurations
 
 import type { TileDefinition } from './tile-types';
@@ -23,7 +23,6 @@ interface TileOutput {
 
 export const TILE_REGISTRY: Record<string, TileDefinition> = {
   // ============ INPUT TILES ============
-  // Bring media into the workflow
 
   'video-input': {
     type: 'video-input',
@@ -32,7 +31,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Upload local video or paste link (YouTube, etc.) - Max 20 GB, 300 min',
     icon: 'Video',
     defaultConfig: {
-      source: 'upload', // 'upload' | 'youtube'
+      source: 'upload',
       fileName: '',
       youtubeUrl: '',
       subtitleLanguage: 'en,hi',
@@ -64,7 +63,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       {
         id: 'youtubeUrl',
         label: 'YouTube URL',
-        type: 'string',
+        type: 'text',
         showIf: { field: 'source', value: 'youtube' }
       },
       {
@@ -83,21 +82,11 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Import images for overlays, thumbnails, or AI processing',
     icon: 'Image',
     defaultConfig: {
-      source: 'upload',
       fileName: '',
-      dimensions: undefined,
     },
     inputs: [],
     outputs: [{ id: 'image', type: 'image', label: 'Image path', description: 'Imported image path' }],
     configOptions: [
-      {
-        id: 'source',
-        label: 'Source',
-        type: 'select',
-        options: [
-          { value: 'upload', label: 'File Upload' }
-        ]
-      },
       {
         id: 'fileName',
         label: 'Upload Image',
@@ -115,21 +104,11 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Upload audio files for music, voiceovers, or sound effects',
     icon: 'Music',
     defaultConfig: {
-      source: 'upload',
-      fileName: undefined,
-      duration: undefined,
+      fileName: '',
     },
     inputs: [],
     outputs: [{ id: 'audio', type: 'audio', label: 'Audio path', description: 'Audio track path' }],
     configOptions: [
-      {
-        id: 'source',
-        label: 'Source',
-        type: 'select',
-        options: [
-          { value: 'upload', label: 'File Upload' }
-        ]
-      },
       {
         id: 'fileName',
         label: 'Upload Audio',
@@ -148,69 +127,15 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     icon: 'Type',
     defaultConfig: {
       content: '',
-      format: 'plain', // 'plain' | 'markdown' | 'srt'
     },
     inputs: [],
     outputs: [{ id: 'text', type: 'text', label: 'Text', description: 'Text content' }],
     isConfigurable: true,
   },
 
-  // ============ CREATION TILES ============
-  // Generate new media from scratch
+  // ============ AI GENERATION TILES ============
 
 
-
-  'ai-augment': {
-    type: 'ai-augment',
-    category: 'action',
-    label: 'AI Augment',
-    description: 'AI visual transformations on short video segments',
-    icon: 'Wand2',
-    defaultConfig: {
-      enhancement: 'auto', // 'auto' | 'cinematic' | 'vibrant' | 'dramatic'
-      intensity: 50,
-      stylePrompt: '',
-      preserveOriginal: true,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video segment to augment' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Augmented Video', description: 'Visually enhanced video' },
-    ],
-    isConfigurable: true,
-  },
-
-
-
-  'ai-music': {
-    type: 'ai-music',
-    category: 'action',
-    label: 'AI Music',
-    description: 'Original, copyright-safe background music track',
-    icon: 'Music2',
-    defaultConfig: {
-      intelligentAnalysis: true,
-      prompt: '',
-      genre: 'electronic', // 'electronic' | 'orchestral' | 'acoustic' | 'hiphop' | 'ambient'
-      mood: 'upbeat', // 'upbeat' | 'calm' | 'dramatic' | 'happy' | 'sad'
-      intensity: 50,
-      bpm: 120,
-      style: '',
-      startTime: 0,
-      endTime: 60,
-      fadeIn: 2,
-      fadeOut: 2,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: false, description: 'Video to analyze for timing' },
-      { id: 'text', type: 'text', label: 'Prompt', required: false, description: 'Music description' },
-    ],
-    outputs: [
-      { id: 'audio', type: 'audio', label: 'Music Track', description: 'Generated background music' },
-    ],
-    isConfigurable: true,
-  },
 
   'ai-image': {
     type: 'ai-image',
@@ -268,7 +193,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       duration: 5,
       aspectRatio: '16:9',
       style: 'cinematic',
-      quality: 'speed', // 'speed' | 'quality'
+      quality: 'speed',
     },
     inputs: [
       { id: 'text', type: 'text', label: 'Prompt', required: true, description: 'Video description' },
@@ -292,10 +217,9 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
         label: 'Aspect Ratio',
         type: 'select',
         options: [
-          { value: '16:9', label: '16:9 (Landscape - YouTube)' },
-          { value: '9:16', label: '9:16 (Portrait - TikTok/Reels)' },
-          { value: '1:1', label: '1:1 (Square - Instagram)' },
-          { value: '4:5', label: '4:5 (Standard Portrait)' }
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Portrait)' },
+          { value: '1:1', label: '1:1 (Square)' }
         ]
       },
       {
@@ -307,22 +231,12 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
           { value: 'anime', label: 'Anime' },
           { value: '3d-render', label: '3D Render' }
         ]
-      },
-      {
-        id: 'quality',
-        label: 'Quality',
-        type: 'select',
-        options: [
-          { value: 'quality', label: 'High Quality' },
-          { value: 'speed', label: 'Fast Generation (Speed)' }
-        ]
       }
     ],
     isConfigurable: true,
   },
 
   // ============ ACTION TILES ============
-  // Modify existing media
 
   'captions': {
     type: 'captions',
@@ -331,15 +245,15 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Dynamic, stylized subtitles with word highlighting',
     icon: 'Captions',
     defaultConfig: {
-      style: 'highlight', // 'basic' | 'highlight' | 'cinematic' | 'social'
+      style: 'highlight',
       baseColor: '#FFFFFF',
       highlightColor: '#FFFF00',
       strokeColor: '#000000',
       font: 'Inter',
       fontSize: 48,
-      verticalPosition: 'bottom', // 'top' | 'middle' | 'bottom'
+      verticalPosition: 'bottom',
       wordsPerCaption: 4,
-      animation: 'fade', // 'none' | 'fade' | 'slide' | 'pop'
+      animation: 'fade',
       showBackground: true,
       backgroundColor: 'rgba(0,0,0,0.5)',
     },
@@ -354,146 +268,55 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     isConfigurable: true,
   },
 
-
-
-  'rough-cut': {
-    type: 'rough-cut',
-    category: 'action',
-    label: 'Rough Cut',
-    description: 'Condensed video with filler/silence removed based on prompt',
-    icon: 'Scissors',
-    defaultConfig: {
-      creativeIntent: '', // Required - describes what to keep
-      removeFiller: true,
-      removeSilence: true,
-      removeRepetitions: true,
-      targetDuration: undefined, // Optional target length
-      preserveStructure: true,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Raw video' },
-      { id: 'text', type: 'text', label: 'Intent', required: true, description: 'Creative intent prompt' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Edited Video', description: 'Condensed video' },
-    ],
-    isConfigurable: true,
-  },
-
-  'montage': {
-    type: 'montage',
-    category: 'action',
-    label: 'Montage',
-    description: 'Stitched montage with rhythm, pacing, and style',
-    icon: 'Layers',
-    defaultConfig: {
-      stylePrompt: '', // Required
-      audioTrack: undefined,
-      targetBpm: undefined,
-      transitionStyle: 'cut', // 'cut' | 'fade' | 'dissolve' | 'wipe'
-      beatSync: true,
-      colorGrade: 'match', // 'match' | 'cinematic' | 'vibrant'
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Videos', required: true, description: 'One or more video clips' },
-      { id: 'audio', type: 'audio', label: 'Audio Track', required: false, description: 'Background music' },
-      { id: 'text', type: 'text', label: 'Style', required: true, description: 'Style prompt' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Montage', description: 'Stitched montage video' },
-    ],
-    isConfigurable: true,
-  },
-
   'voice': {
     type: 'voice',
     category: 'action',
-    label: 'Voice',
-    description: 'Dubbed/modified audio with lip-synced visuals',
+    label: 'Voice TTS',
+    description: 'Clone and generate speech using audio.z.ai AI models',
     icon: 'Mic2',
     defaultConfig: {
-      targetLanguage: 'en',
-      preserveBackgroundAudio: true,
-      lipSync: true,
-      safewords: [], // Words not to translate
-      translationDictionary: {}, // Custom translations
-      voiceStyle: 'preserve', // 'preserve' | 'natural' | 'professional'
+      voice_id: '',
+      speed: 1.0,
+      volume: 1.0,
     },
     inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to dub' },
-      { id: 'text', type: 'text', label: 'Translation', required: false, description: 'Optional translation' },
+      { id: 'text', type: 'text', label: 'Script', required: true, description: 'Text to synthesize into speech' },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Dubbed Video', description: 'Video with new voice' },
+      { id: 'audio', type: 'audio', label: 'Generated Audio', description: 'Synthesized voice track' },
+    ],
+    configOptions: [
+      {
+        id: 'voice_id',
+        label: 'Select Voice',
+        description: 'Choose a system or cloned voice profile',
+        type: 'select',
+        // Instructs the UI to fetch options dynamically from our proxy
+        options_endpoint: '/api/voices'
+      },
+      {
+        id: 'speed',
+        label: 'Speech Rate',
+        description: 'Adjust the playback speed',
+        type: 'slider',
+        min: 0.5,
+        max: 2.0,
+        step: 0.1,
+      },
+      {
+        id: 'volume',
+        label: 'Volume',
+        description: 'Adjust the output volume',
+        type: 'slider',
+        min: 0,
+        max: 10,
+        step: 1,
+      }
     ],
     isConfigurable: true,
   },
 
-  'audio-enhance': {
-    type: 'audio-enhance',
-    category: 'action',
-    label: 'Audio Enhance',
-    description: 'One-click audio cleanup - noise reduction, clarity, levels',
-    icon: 'Volume2',
-    defaultConfig: {
-      // No settings needed - one-click enhancement
-      noiseReduction: true,
-      speechClarity: true,
-      levelBalancing: true,
-      backgroundNoiseRemoval: true,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to enhance' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Enhanced Video', description: 'Video with clean audio' },
-    ],
-    isConfigurable: true,
-  },
 
-  'reframe': {
-    type: 'reframe',
-    category: 'action',
-    label: 'Reframe',
-    description: 'Change aspect ratio for different platforms',
-    icon: 'Maximize',
-    defaultConfig: {
-      targetRatio: '9:16', // '9:16' | '16:9' | '1:1' | '4:5'
-      mode: 'auto', // 'auto' | 'face-track' | 'center' | 'manual'
-      padding: 'blur', // 'blur' | 'color' | 'stretch'
-      backgroundColor: '#000000',
-      faceTracking: true,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to reframe' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Reframed Video', description: 'Video in new aspect ratio' },
-    ],
-    isConfigurable: true,
-  },
-
-  'silence-removal': {
-    type: 'silence-removal',
-    category: 'action',
-    label: 'Silence Removal',
-    description: 'Remove silent sections from video',
-    icon: 'VolumeX',
-    defaultConfig: {
-      threshold: -40, // dB
-      minDuration: 0.5, // seconds
-      padding: 0.1, // seconds to keep around speech
-      keepShortSilences: false,
-      keepMusic: true,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to process' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Video without silence' },
-    ],
-    isConfigurable: true,
-  },
 
   'clips': {
     type: 'clips',
@@ -502,12 +325,12 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Extract short-form highlight clips from video',
     icon: 'Film',
     defaultConfig: {
-      mode: 'ai-suggested', // 'manual' | 'ai-suggested' | 'silence-based'
+      mode: 'ai-suggested',
       clipCount: 5,
-      minDuration: 15, // seconds
-      maxDuration: 60, // seconds
+      minDuration: 15,
+      maxDuration: 60,
       aspectRatio: '9:16',
-      targetPlatform: 'instagram', // 'instagram' | 'tiktok' | 'youtube' | 'twitter'
+      targetPlatform: 'instagram',
     },
     inputs: [
       { id: 'video', type: 'video', label: 'Video', required: true, description: 'Source video' },
@@ -519,243 +342,238 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     isConfigurable: true,
   },
 
-  'intro': {
-    type: 'intro',
+  // ============ NEW TOOL NODES ============
+
+  'sox-audio': {
+    type: 'sox-audio',
     category: 'action',
-    label: 'Intro',
-    description: 'Add professional intro sequence with branding',
-    icon: 'Play',
+    label: 'SoX Audio',
+    description: 'Professional audio processing: normalize, noise reduction, EQ, reverb, fade, trim, pitch, tempo',
+    icon: 'Sliders',
     defaultConfig: {
-      template: 'minimal', // 'minimal' | 'bold' | 'cinematic' | 'custom'
-      duration: 5,
-      text: '',
-      logo: undefined,
-      logoPosition: 'center',
-      animation: 'fade',
-      music: true,
-      backgroundColor: '#000000',
+      operation: 'normalize',
+      // Normalize
+      normalizeDb: -3,
+      // Noise Reduction
+      noiseFloor: -50,
+      // Fade
+      fadeIn: 2,
+      fadeOut: 2,
+      // Trim
+      trimStart: 0,
+      trimEnd: 0,
+      // Reverb
+      reverberance: 50,
+      roomScale: 100,
+      stereoDepth: 100,
+      // Pitch Shift (semitones)
+      pitchShift: 0,
+      // Tempo (percent: 100=normal, 120=20% faster)
+      tempo: 100,
+      // Equalizer
+      eqFrequency: 1000,
+      eqWidth: 1.0,
+      eqGain: 0,
     },
+    configOptions: [
+      {
+        id: 'operation',
+        label: 'Operation',
+        description: 'Select the audio manipulation type',
+        type: 'select',
+        options: [
+          { value: 'normalize', label: 'Normalize (Fix Volume Level)' },
+          { value: 'noise-reduction', label: 'Noise Reduction' },
+          { value: 'fade', label: 'Fade In / Fade Out' },
+          { value: 'trim', label: 'Trim (Cut Start/End)' },
+          { value: 'reverb', label: 'Add Reverb' },
+          { value: 'pitch', label: 'Pitch Shift (Semitones)' },
+          { value: 'tempo', label: 'Change Tempo (No Pitch Change)' },
+          { value: 'equalizer', label: 'Equalizer (EQ Band)' },
+        ]
+      },
+      { id: 'normalizeDb', label: 'Target dB', description: 'Target volume level (e.g. -3 for standard digital audio)', type: 'number', showIf: { field: 'operation', value: 'normalize' } },
+      { id: 'noiseFloor', label: 'Noise Floor dB', description: 'Threshold to filter out background hum/hiss (-50 is moderate)', type: 'number', showIf: { field: 'operation', value: 'noise-reduction' } },
+      { id: 'fadeIn', label: 'Fade In (s)', description: 'Duration of fade-up at start of audio', type: 'number', showIf: { field: 'operation', value: 'fade' } },
+      { id: 'fadeOut', label: 'Fade Out (s)', description: 'Duration of fade-down at end of audio', type: 'number', showIf: { field: 'operation', value: 'fade' } },
+      { id: 'trimStart', label: 'Trim Start (s)', description: 'Seconds to remove from the beginning', type: 'number', showIf: { field: 'operation', value: 'trim' } },
+      { id: 'trimEnd', label: 'Duration (s)', description: 'Keep only this many second (0 = to the end)', type: 'number', showIf: { field: 'operation', value: 'trim' } },
+      { id: 'reverberance', label: 'Reverberance (0-100)', description: 'How long the reverb tail lasts', type: 'number', showIf: { field: 'operation', value: 'reverb' } },
+      { id: 'roomScale', label: 'Room Scale (0-100)', description: 'Simulated physical size of the acoustic room', type: 'number', showIf: { field: 'operation', value: 'reverb' } },
+      { id: 'stereoDepth', label: 'Stereo Depth (0-100)', description: 'Stereo width spread of the reverb effect', type: 'number', showIf: { field: 'operation', value: 'reverb' } },
+      { id: 'pitchShift', label: 'Pitch Shift', description: 'Semitones shift (+12 is an octave up, negative is down)', type: 'number', showIf: { field: 'operation', value: 'pitch' } },
+      { id: 'tempo', label: 'Tempo %', description: 'Percentage speed (100 = normal, 200 = double speed)', type: 'number', showIf: { field: 'operation', value: 'tempo' } },
+      { id: 'eqFrequency', label: 'EQ Frequency (Hz)', description: 'Target middle frequency to boost/cut', type: 'number', showIf: { field: 'operation', value: 'equalizer' } },
+      { id: 'eqWidth', label: 'EQ Width (Q)', description: 'Quality factor / bandwidth size of EQ curve', type: 'number', showIf: { field: 'operation', value: 'equalizer' } },
+      { id: 'eqGain', label: 'EQ Gain (dB)', description: 'Gain relative to standard (positive to boost bass/treble)', type: 'number', showIf: { field: 'operation', value: 'equalizer' } },
+    ],
     inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Main video' },
-      { id: 'image', type: 'image', label: 'Logo', required: false, description: 'Logo image' },
+      { id: 'audio', type: 'audio', label: 'Audio path', required: true, description: 'Input audio file' },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Video with Intro', description: 'Video with intro' },
+      { id: 'audio', type: 'audio', label: 'Audio path', description: 'Processed audio file' },
     ],
     isConfigurable: true,
   },
 
-  'outro': {
-    type: 'outro',
-    category: 'action',
-    label: 'Outro',
-    description: 'Add professional outro with call-to-action',
-    icon: 'Square',
-    defaultConfig: {
-      template: 'subscribe', // 'subscribe' | 'credits' | 'social' | 'custom'
-      duration: 10,
-      text: 'Thanks for watching!',
-      showSubscribe: true,
-      showSocialLinks: true,
-      socialLinks: { youtube: '', instagram: '', twitter: '' },
-      animation: 'fade',
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Main video' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video with Outro', description: 'Video with outro' },
-    ],
-    isConfigurable: true,
-  },
 
-  'watermark': {
-    type: 'watermark',
-    category: 'action',
-    label: 'Watermark',
-    description: 'Add watermark or logo overlay to video',
-    icon: 'Stamp',
-    defaultConfig: {
-      image: undefined,
-      position: 'bottom-right',
-      size: 15, // percentage
-      opacity: 80,
-      margin: 20,
-      animation: 'none', // 'none' | 'fade' | 'slide'
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to watermark' },
-      { id: 'image', type: 'image', label: 'Watermark', required: false, description: 'Watermark image' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Watermarked Video', description: 'Video with watermark' },
-    ],
-    isConfigurable: true,
-  },
 
-  'color-correction': {
-    type: 'color-correction',
+  'image-magick': {
+    type: 'image-magick',
     category: 'action',
-    label: 'Color Correction',
-    description: 'Professional color grading and correction',
-    icon: 'Palette',
+    label: 'ImageMagick',
+    description: 'Professional image editing: resize, crop, rotate, blur, sharpen, brightness, format convert',
+    icon: 'Edit',
     defaultConfig: {
-      preset: 'cinematic', // 'cinematic' | 'vibrant' | 'vintage' | 'custom'
+      operation: 'resize',
+      // Resize
+      width: 1920,
+      height: 1080,
+      maintainAspect: true,
+      // Crop
+      cropX: 0,
+      cropY: 0,
+      cropWidth: 1280,
+      cropHeight: 720,
+      // Rotate
+      degrees: 90,
+      // Blur / Sharpen
+      blurRadius: 5,
+      sharpenRadius: 2,
+      sharpenSigma: 1.0,
+      // Brightness / Contrast (-100 to +100)
       brightness: 0,
       contrast: 0,
-      saturation: 0,
-      temperature: 0,
-      tint: 0,
-      highlights: 0,
-      shadows: 0,
-      lut: undefined, // LUT file URL
+      // Convert
+      outputFormat: 'jpg',
+      // Border
+      borderSize: 10,
+      borderColor: '#000000',
     },
+    configOptions: [
+      {
+        id: 'operation',
+        label: 'Operation',
+        description: 'Select the image edit type',
+        type: 'select',
+        options: [
+          { value: 'resize', label: 'Resize' },
+          { value: 'crop', label: 'Crop' },
+          { value: 'rotate', label: 'Rotate' },
+          { value: 'flip', label: 'Flip Horizontal' },
+          { value: 'flop', label: 'Flip Vertical' },
+          { value: 'blur', label: 'Blur' },
+          { value: 'sharpen', label: 'Sharpen' },
+          { value: 'brightness-contrast', label: 'Brightness & Contrast' },
+          { value: 'grayscale', label: 'Convert to Grayscale' },
+          { value: 'convert-format', label: 'Convert Format' },
+          { value: 'border', label: 'Add Border' },
+        ]
+      },
+      { id: 'width', label: 'Width (px)', description: 'Target width for image', type: 'number', showIf: { field: 'operation', value: 'resize' } },
+      { id: 'height', label: 'Height (px)', description: 'Target height for image', type: 'number', showIf: { field: 'operation', value: 'resize' } },
+      { id: 'maintainAspect', label: 'Maintain Aspect Ratio', description: 'Prevent image stretching', type: 'boolean', showIf: { field: 'operation', value: 'resize' } },
+
+      { id: 'cropX', label: 'Crop X offset', description: 'Starting X coordinate from top left', type: 'number', showIf: { field: 'operation', value: 'crop' } },
+      { id: 'cropY', label: 'Crop Y offset', description: 'Starting Y coordinate from top left', type: 'number', showIf: { field: 'operation', value: 'crop' } },
+      { id: 'cropWidth', label: 'Crop Width', description: 'Ending width of the crop', type: 'number', showIf: { field: 'operation', value: 'crop' } },
+      { id: 'cropHeight', label: 'Crop Height', description: 'Ending height of the crop', type: 'number', showIf: { field: 'operation', value: 'crop' } },
+
+      { id: 'degrees', label: 'Rotation Degrees', description: 'Rotate clockwise', type: 'number', showIf: { field: 'operation', value: 'rotate' } },
+
+      { id: 'blurRadius', label: 'Blur Radius', description: 'Intensity of Gaussian blur', type: 'number', showIf: { field: 'operation', value: 'blur' } },
+
+      { id: 'sharpenRadius', label: 'Sharpen Radius', description: 'Radius of sharpening filter', type: 'number', showIf: { field: 'operation', value: 'sharpen' } },
+      { id: 'sharpenSigma', label: 'Sharpen Sigma', description: 'Standard deviation (1.0 is default)', type: 'number', showIf: { field: 'operation', value: 'sharpen' } },
+
+      { id: 'brightness', label: 'Brightness', description: 'Brightness filter (-100 to +100)', type: 'number', showIf: { field: 'operation', value: 'brightness-contrast' } },
+      { id: 'contrast', label: 'Contrast', description: 'Contrast filter (-100 to +100)', type: 'number', showIf: { field: 'operation', value: 'brightness-contrast' } },
+
+      {
+        id: 'outputFormat',
+        label: 'Output Format',
+        description: 'New format for exported file',
+        type: 'select',
+        showIf: { field: 'operation', value: 'convert-format' },
+        options: [
+          { value: 'jpg', label: 'JPG' },
+          { value: 'png', label: 'PNG' },
+          { value: 'webp', label: 'WebP' },
+          { value: 'bmp', label: 'BMP' },
+        ]
+      },
+
+      { id: 'borderSize', label: 'Border Size (px)', description: 'Thickness of solid border to add', type: 'number', showIf: { field: 'operation', value: 'border' } },
+      { id: 'borderColor', label: 'Border Color', description: 'Color hex code for border', type: 'color', showIf: { field: 'operation', value: 'border' } },
+    ],
     inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true, description: 'Video to correct' },
+      { id: 'image', type: 'image', label: 'Image path', required: true, description: 'Input image' },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Corrected Video', description: 'Color-corrected video' },
+      { id: 'image', type: 'image', label: 'Image path', description: 'Processed image' },
     ],
     isConfigurable: true,
   },
 
-  'concatenate': {
-    type: 'concatenate',
+  'd3-chart': {
+    type: 'd3-chart',
     category: 'action',
-    label: 'Concatenate',
-    description: 'Join multiple video clips together',
-    icon: 'Plus',
+    label: 'D3 Chart',
+    description: 'Generate beautiful data visualizations: Bar, Line, Pie, Scatter, Area charts as PNG images',
+    icon: 'BarChart2',
     defaultConfig: {
-      transition: 'none', // 'none' | 'fade' | 'dissolve' | 'wipe'
-      transitionDuration: 0.5,
-      audioHandling: 'keep-all', // 'keep-all' | 'first-only' | 'mix'
+      chartType: 'bar',
+      title: 'My Chart',
+      xLabel: 'X Axis',
+      yLabel: 'Y Axis',
+      width: 1280,
+      height: 720,
+      colorScheme: 'blue',
+      sampleData: '[{"label":"A","value":10},{"label":"B","value":25},{"label":"C","value":15}]',
     },
+    configOptions: [
+      {
+        id: 'chartType',
+        label: 'Chart Type',
+        type: 'select',
+        options: [
+          { value: 'bar', label: 'Bar Chart' },
+          { value: 'line', label: 'Line Chart' },
+          { value: 'pie', label: 'Pie Chart' },
+          { value: 'scatter', label: 'Scatter Plot' },
+          { value: 'area', label: 'Area Chart' },
+        ]
+      },
+      { id: 'title', label: 'Chart Title', type: 'text' },
+      { id: 'xLabel', label: 'X Axis Label', type: 'text' },
+      { id: 'yLabel', label: 'Y Axis Label', type: 'text' },
+      { id: 'width', label: 'Width (px)', type: 'number' },
+      { id: 'height', label: 'Height (px)', type: 'number' },
+      {
+        id: 'colorScheme',
+        label: 'Color Scheme',
+        type: 'select',
+        options: [
+          { value: 'blue', label: 'Blue' },
+          { value: 'green', label: 'Green' },
+          { value: 'red', label: 'Red' },
+          { value: 'purple', label: 'Purple' },
+          { value: 'orange', label: 'Orange' },
+          { value: 'rainbow', label: 'Rainbow' },
+        ]
+      },
+    ],
     inputs: [
-      { id: 'video1', type: 'video', label: 'Video 1', required: true },
-      { id: 'video2', type: 'video', label: 'Video 2', required: true },
+      { id: 'text', type: 'text', label: 'JSON Data', required: false, description: 'Array of {label, value} objects as JSON' },
     ],
     outputs: [
-      { id: 'video', type: 'video', label: 'Combined Video', description: 'Concatenated video' },
+      { id: 'image', type: 'image', label: 'Chart Image', description: 'Generated chart as PNG' },
     ],
     isConfigurable: true,
   },
 
-  'text-overlay': {
-    type: 'text-overlay',
-    category: 'action',
-    label: 'Text Overlay',
-    description: 'Add text overlays with animations',
-    icon: 'Type',
-    defaultConfig: {
-      text: '',
-      font: 'Inter',
-      fontSize: 48,
-      color: '#FFFFFF',
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      position: 'bottom',
-      animation: 'none',
-      duration: 'full', // 'full' | number of seconds
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
-      { id: 'text', type: 'text', label: 'Text', required: false },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Video with text overlay' },
-    ],
-    isConfigurable: true,
-  },
-
-  'image-overlay': {
-    type: 'image-overlay',
-    category: 'action',
-    label: 'Image Overlay',
-    description: 'Add image overlays and stickers',
-    icon: 'Layers',
-    defaultConfig: {
-      position: { x: 50, y: 50 }, // percentage
-      size: 20, // percentage
-      opacity: 100,
-      maintainAspect: true,
-      animation: 'none',
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
-      { id: 'image', type: 'image', label: 'Image', required: true },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Video with image overlay' },
-    ],
-    isConfigurable: true,
-  },
-
-  // ============ OUTPUT TILES ============
-  // Export or publish results
-
-  'video-output': {
-    type: 'video-output',
-    category: 'output',
-    label: 'Video Output',
-    description: 'Export processed video in various formats',
-    icon: 'Download',
-    defaultConfig: {
-      format: 'mp4', // 'mp4' | 'webm' | 'mov' | 'gif'
-      resolution: '1080p', // '720p' | '1080p' | '4k'
-      quality: 'high', // 'low' | 'medium' | 'high'
-      fps: 30,
-      codec: 'h264', // 'h264' | 'h265' | 'vp9'
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
-    ],
-    outputs: [],
-    isConfigurable: true,
-  },
-
-  'audio-output': {
-    type: 'audio-output',
-    category: 'output',
-    label: 'Audio Output',
-    description: 'Export audio in various formats',
-    icon: 'Download',
-    defaultConfig: {
-      format: 'mp3', // 'mp3' | 'wav' | 'aac' | 'flac'
-      quality: 'high',
-      sampleRate: 44100,
-    },
-    inputs: [
-      { id: 'audio', type: 'audio', label: 'Audio', required: true },
-    ],
-    outputs: [],
-    isConfigurable: true,
-  },
-
-  'destination': {
-    type: 'destination',
-    category: 'output',
-    label: 'Destination',
-    description: 'Publish directly to social platforms',
-    icon: 'Upload',
-    defaultConfig: {
-      mode: 'review', // 'review' | 'publish-immediately' | 'export-only'
-      platforms: [], // 'youtube' | 'instagram' | 'tiktok' | 'twitter' | 'facebook' | 'linkedin'
-      title: '',
-      description: '',
-      tags: [],
-      aiCaptions: true, // Generate captions for posts
-      scheduledTime: undefined,
-      thumbnail: undefined,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
-      { id: 'text', type: 'text', label: 'Post Content', required: false },
-    ],
-    outputs: [],
-    isConfigurable: true,
-  },
 
   // ============ LOGIC TILES ============
-  // Control flow and branching
 
   'branch': {
     type: 'branch',
@@ -763,13 +581,8 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Branch',
     description: 'Create multiple processing branches',
     icon: 'GitBranch',
-    defaultConfig: {
-      branches: 2,
-      mode: 'parallel', // 'parallel' | 'conditional'
-    },
-    inputs: [
-      { id: 'input', type: 'any', label: 'Input', required: true },
-    ],
+    defaultConfig: { branches: 2, mode: 'parallel' },
+    inputs: [{ id: 'input', type: 'any', label: 'Input', required: true }],
     outputs: [
       { id: 'branch1', type: 'any', label: 'Branch 1' },
       { id: 'branch2', type: 'any', label: 'Branch 2' },
@@ -783,21 +596,16 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Merge',
     description: 'Combine multiple branches back together',
     icon: 'GitMerge',
-    defaultConfig: {
-      mode: 'sequential', // 'sequential' | 'parallel'
-    },
+    defaultConfig: { mode: 'sequential' },
     inputs: [
       { id: 'input1', type: 'any', label: 'Input 1', required: true },
       { id: 'input2', type: 'any', label: 'Input 2', required: false },
     ],
-    outputs: [
-      { id: 'output', type: 'any', label: 'Output' },
-    ],
+    outputs: [{ id: 'output', type: 'any', label: 'Output' }],
     isConfigurable: true,
   },
 
   // ============ PREVIEW TILES ============
-  // Display media like ComfyUI preview nodes
 
   'video-preview': {
     type: 'video-preview',
@@ -805,14 +613,8 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Video Preview',
     description: 'Preview video output in the canvas',
     icon: 'Play',
-    defaultConfig: {
-      autoplay: false,
-      muted: true,
-      loop: true,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
-    ],
+    defaultConfig: { autoplay: false, muted: true, loop: true },
+    inputs: [{ id: 'video', type: 'video', label: 'Video', required: true }],
     outputs: [],
     isConfigurable: true,
   },
@@ -824,9 +626,7 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Preview image output in the canvas',
     icon: 'Image',
     defaultConfig: {},
-    inputs: [
-      { id: 'image', type: 'image', label: 'Image', required: true },
-    ],
+    inputs: [{ id: 'image', type: 'image', label: 'Image', required: true }],
     outputs: [],
     isConfigurable: false,
   },
@@ -837,12 +637,8 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Audio Preview',
     description: 'Preview audio output with waveform',
     icon: 'Music',
-    defaultConfig: {
-      autoplay: false,
-    },
-    inputs: [
-      { id: 'audio', type: 'audio', label: 'Audio', required: true },
-    ],
+    defaultConfig: { autoplay: false },
+    inputs: [{ id: 'audio', type: 'audio', label: 'Audio', required: true }],
     outputs: [],
     isConfigurable: true,
   },
@@ -853,12 +649,8 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Text Preview',
     description: 'Display text output (transcripts, etc.)',
     icon: 'FileText',
-    defaultConfig: {
-      maxLines: 50,
-    },
-    inputs: [
-      { id: 'text', type: 'text', label: 'Text', required: true },
-    ],
+    defaultConfig: { maxLines: 50 },
+    inputs: [{ id: 'text', type: 'text', label: 'Text', required: true }],
     outputs: [],
     isConfigurable: true,
   },
@@ -867,18 +659,15 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     type: 'json-preview',
     category: 'output',
     label: 'JSON Preview',
-    description: 'Display structured JSON data (metadata, etc.)',
+    description: 'Display structured JSON data (metadata, transcripts, etc.)',
     icon: 'Code',
     defaultConfig: {},
-    inputs: [
-      { id: 'json', type: 'any', label: 'Data', required: true },
-    ],
+    inputs: [{ id: 'json', type: 'any', label: 'Data', required: true }],
     outputs: [],
     isConfigurable: true,
   },
 
   // ============ ANIMATION TILES ============
-  // Manim and Remotion for animations
 
   'manim': {
     type: 'manim',
@@ -888,14 +677,41 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     icon: 'Cpu',
     defaultConfig: {
       script: '# Example: Create a circle\ncircle = Circle()\nself.play(Create(circle))\nself.wait(1)',
-      quality: 'p', // 'l'=480p, 'm'=720p, 'p'=1080p, 'k'=4k
+      quality: 'l',
       format: 'mp4',
     },
-    inputs: [
-      { id: 'text', type: 'text', label: 'Script', required: false, description: 'Python Manim code' },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Animation', description: 'Generated animation video' },
+    inputs: [{ id: 'text', type: 'text', label: 'Script', required: false, description: 'Python Manim code' }],
+    outputs: [{ id: 'video', type: 'video', label: 'Video Path', description: 'Generated animation video path' }],
+    configOptions: [
+      {
+        id: 'script',
+        label: 'Manim Python Script',
+        description: 'Write the body of the construct() method. Each line will be executed inside a Scene class.',
+        type: 'textarea',
+      },
+      {
+        id: 'quality',
+        label: 'Render Quality',
+        description: 'Higher quality = longer render time',
+        type: 'select',
+        options: [
+          { value: 'l', label: 'Low (480p 15fps) – Fast' },
+          { value: 'm', label: 'Medium (720p 30fps)' },
+          { value: 'h', label: 'High (1080p 60fps)' },
+          { value: 'p', label: 'Production (1440p 60fps)' },
+          { value: 'k', label: '4K (2160p 60fps) – Slow' },
+        ]
+      },
+      {
+        id: 'format',
+        label: 'Output Format',
+        type: 'select',
+        options: [
+          { value: 'mp4', label: 'MP4 (H.264)' },
+          { value: 'gif', label: 'GIF (Animated)' },
+          { value: 'webm', label: 'WebM' },
+        ]
+      },
     ],
     isConfigurable: true,
   },
@@ -917,84 +733,13 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       { id: 'text', type: 'text', label: 'Composition', required: false, description: 'Composition name or code' },
       { id: 'image', type: 'image', label: 'Background', required: false },
     ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Generated Remotion video' },
-    ],
+    outputs: [{ id: 'video', type: 'video', label: 'Video', description: 'Generated Remotion video' }],
     isConfigurable: true,
   },
 
   // ============ TRANSCRIPTION TILE ============
 
-  'transcribe': {
-    type: 'transcribe',
-    category: 'action',
-    label: 'Transcribe',
-    description: 'Transcribe audio/video to text using Whisper',
-    icon: 'Mic',
-    defaultConfig: {
-      language: 'en',
-      model: 'base', // 'tiny', 'base', 'small', 'medium', 'large'
-      outputFormat: 'srt', // 'srt' | 'txt' | 'json'
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: false },
-      { id: 'audio', type: 'audio', label: 'Audio', required: false },
-    ],
-    outputs: [
-      { id: 'text', type: 'text', label: 'Transcript', description: 'Transcribed text' },
-    ],
-    isConfigurable: true,
-  },
 
-  // ============ THUMBNAIL TILE ============
-
-  'thumbnail': {
-    type: 'thumbnail',
-    category: 'action',
-    label: 'Thumbnail',
-    description: 'Generate or extract video thumbnail',
-    icon: 'Image',
-    defaultConfig: {
-      mode: 'extract', // 'extract' | 'generate'
-      timestamp: 0, // seconds
-      prompt: '', // for generation
-      width: 1280,
-      height: 720,
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: false },
-      { id: 'text', type: 'text', label: 'Prompt', required: false },
-    ],
-    outputs: [
-      { id: 'image', type: 'image', label: 'Thumbnail', description: 'Generated thumbnail' },
-    ],
-    isConfigurable: true,
-  },
-
-  // ============ GREEN SCREEN TILE ============
-
-  'green-screen': {
-    type: 'green-screen',
-    category: 'action',
-    label: 'Green Screen',
-    description: 'Remove or replace green/blue screen background',
-    icon: 'Layers',
-    defaultConfig: {
-      keyColor: 'green', // 'green' | 'blue' | 'custom'
-      customColor: '#00ff00',
-      threshold: 50,
-      edgeSoftness: 10,
-      backgroundImage: '',
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video', required: true },
-      { id: 'image', type: 'image', label: 'Background', required: false },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video', description: 'Video with replaced background' },
-    ],
-    isConfigurable: true,
-  },
 
   // ============ SPEED TILE ============
 
@@ -1005,21 +750,32 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     description: 'Change video playback speed',
     icon: 'Gauge',
     defaultConfig: {
-      speed: 1.0, // 0.5 = half speed, 2.0 = double speed
+      speed: '1.5',
       preserveAudio: true,
       pitchCorrection: true,
     },
     configOptions: [
-      { id: 'speed', type: 'number', label: 'Speed Multiplier' },
+      {
+        id: 'speed',
+        type: 'select',
+        label: 'Speed Multiplier',
+        options: [
+          { value: '0.25', label: '0.25x' },
+          { value: '0.5', label: '0.5x' },
+          { value: '0.75', label: '0.75x' },
+          { value: '1.0', label: '1.0x (Normal)' },
+          { value: '1.25', label: '1.25x' },
+          { value: '1.5', label: '1.5x' },
+          { value: '2.0', label: '2.0x' },
+          { value: '3.0', label: '3.0x' },
+          { value: '4.0', label: '4.0x' },
+        ]
+      },
       { id: 'preserveAudio', type: 'boolean', label: 'Preserve Audio' },
       { id: 'pitchCorrection', type: 'boolean', label: 'Apply Pitch Correction' },
     ],
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video path', required: true },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video path', description: 'Speed-adjusted video' },
-    ],
+    inputs: [{ id: 'video', type: 'video', label: 'Video path', required: true }],
+    outputs: [{ id: 'video', type: 'video', label: 'Video path', description: 'Speed-adjusted video' }],
     isConfigurable: true,
   },
 
@@ -1035,14 +791,11 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
       reverseVideo: true,
       reverseAudio: true,
     },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video path', required: true },
-    ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Video path', description: 'Reversed video' },
-    ],
+    inputs: [{ id: 'video', type: 'video', label: 'Video path', required: true }],
+    outputs: [{ id: 'video', type: 'video', label: 'Video path', description: 'Reversed video' }],
     isConfigurable: true,
   },
+
   // ============ UTILITY TILES ============
 
   'merge-video': {
@@ -1051,17 +804,13 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Merge Video',
     description: 'Concatenate multiple videos consecutively',
     icon: 'Layers',
-    defaultConfig: {
-      transition: 'none', // 'none' | 'fade' | 'crossfade'
-    },
+    defaultConfig: { transition: 'none' },
     inputs: [
       { id: 'video1', type: 'video', label: 'Video 1', required: true },
       { id: 'video2', type: 'video', label: 'Video 2', required: true },
       { id: 'video3', type: 'video', label: 'Video 3', required: false },
     ],
-    outputs: [
-      { id: 'video', type: 'video', label: 'Merged Video', description: 'Combined video' },
-    ],
+    outputs: [{ id: 'video', type: 'video', label: 'Merged Video', description: 'Combined video' }],
     isConfigurable: true,
   },
 
@@ -1071,12 +820,8 @@ export const TILE_REGISTRY: Record<string, TileDefinition> = {
     label: 'Split Video',
     description: 'Split a video into two segments at a timestamp',
     icon: 'Scissors',
-    defaultConfig: {
-      splitTime: 5, // Split at 5 seconds
-    },
-    inputs: [
-      { id: 'video', type: 'video', label: 'Video path', required: true },
-    ],
+    defaultConfig: { splitTime: 5 },
+    inputs: [{ id: 'video', type: 'video', label: 'Video path', required: true }],
     outputs: [
       { id: 'video1', type: 'video', label: 'Part 1 path', description: 'First segment' },
       { id: 'video2', type: 'video', label: 'Part 2 path', description: 'Second segment' },
@@ -1112,19 +857,16 @@ export function getTileDefinition(type: string): TileDefinition | undefined {
 }
 
 export function getCreationTiles(): TileDefinition[] {
-  const creationTypes = [
-    'ai-augment', 'ai-music', 'ai-image', 'ai-video'
-  ];
+  const creationTypes = ['ai-music', 'ai-image', 'ai-video'];
   return creationTypes.map(type => TILE_REGISTRY[type]).filter(Boolean);
 }
 
 export function getTilesForPlatform(platform: 'youtube' | 'instagram' | 'tiktok' | 'twitter'): TileDefinition[] {
   const platformTiles: Record<string, string[]> = {
-    youtube: ['video-input', 'captions', 'intro', 'outro', 'thumbnail', 'destination'],
-    instagram: ['video-input', 'reframe', 'clips', 'destination'],
-    tiktok: ['video-input', 'reframe', 'destination'],
-    twitter: ['video-input', 'clips', 'captions', 'destination'],
+    youtube: ['video-input', 'captions', 'whisper-transcribe'],
+    instagram: ['video-input', 'reframe', 'clips'],
+    tiktok: ['video-input', 'reframe'],
+    twitter: ['video-input', 'clips', 'captions'],
   };
-
   return platformTiles[platform]?.map(type => TILE_REGISTRY[type]).filter(Boolean) || [];
 }
